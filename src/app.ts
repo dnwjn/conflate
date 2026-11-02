@@ -1,0 +1,418 @@
+import type { MergeInputPayload, ThreeWayMergeResult } from "./bindings";
+import { abortMerge, computeThreeWayMerge, computeWordDiff, getMergeInput, saveResult } from "./ipc";
+import { installKeymap, KEYMAP_BINDINGS } from "./keymap";
+import { nextConflict, prevConflict } from "./merge/hunkNav";
+import { createThreeWayView, type ThreeWayView } from "./merge/threeWayView";
+import { initTheme, themeIndicatorIcon, themeIndicatorLabel, type ThemeController, type ThemeOverride } from "./theme";
+
+/**
+ * Optional theming hook (Task 12). When omitted, the toolbar still renders
+ * the theme-toggle button and ⌥⌘T still cycles an in-memory override — it
+ * just isn't persisted or wired to live OS changes, which is enough to keep
+ * `mountApp`'s existing tests (which don't care about theming) decoupled
+ * from `initTheme`'s Tauri/matchMedia side effects.
+ */
+export interface MountAppOptions {
+	initialTheme?: ThemeOverride;
+	onThemeOverrideChange?: (override: ThemeOverride) => void;
+	/**
+	 * Sets the NATIVE window title (Tauri's `setTitle`, wired in `main.ts`).
+	 * Injected rather than called directly so `mountApp`'s tests don't need
+	 * a Tauri window; `document.title` is always set regardless.
+	 */
+	setWindowTitle?: (title: string) => void | Promise<void>;
+}
+
+/**
+ * Window title for the file being merged, e.g. "pricing.rs — Conflate", so a
+ * multi-file `git mergetool` run shows which file is open (per the design
+ * reference's "filename in title bar").
+ */
+export function windowTitleFor(fileName: string): string {
+	return fileName ? `${fileName} — Conflate` : "Conflate";
+}
+
+/**
+ * Mounts the merge UI: toolbar, 3-pane merge view (LOCAL | RESULT | REMOTE),
+ * status bar with Abort / Save & Finish. Every IPC failure lands in a
+ * visible error/status message rather than an unhandled rejection; the
+ * Abort button stays usable in the error state so the user can always exit
+ * the mergetool cleanly.
+ */
+export async function mountApp(root: HTMLElement, options: MountAppOptions = {}): Promise<void> {
+	root.innerHTML = "";
+	root.classList.add("app");
+
+	const toolbar = el("header", "toolbar");
+	const brand = el("div", "toolbar-brand");
+	brand.append(el("span", "brand-mark", "◆"), el("span", "brand-name", "Conflate"));
+	const prevButton = button("‹", "toolbar-button", "Previous conflict (⌥⌘,)");
+	const nextButton = button("›", "toolbar-button", "Next conflict (⌥⌘.)");
+	const counter = el("span", "conflict-counter", "");
+	const wordDiffToggle = button("Word diff", "toolbar-toggle is-on", "Toggle word-level highlighting (⌥⌘H)");
+	wordDiffToggle.setAttribute("aria-pressed", "true");
+	const themeButton = button("◐", "toolbar-button", "Toggle theme (⌥⌘T)");
+	const shortcutsButton = button("?", "toolbar-button", "Keyboard shortcuts (?)");
+	toolbar.append(
+		brand,
+		el("span", "toolbar-divider"),
+		prevButton,
+		nextButton,
+		counter,
+		el("span", "toolbar-spacer"),
+		wordDiffToggle,
+		themeButton,
+		shortcutsButton,
+	);
+
+	// --- Theming (Task 12) ----------------------------------------------------
+	// Applies immediately (before the merge input even loads) and keeps the
+	// toolbar indicator in sync with live OS changes while the override is
+	// "system". `cycleTheme` below is the single place both the keybinding and
+	// the toolbar button call into, so they can never diverge.
+	const theme: ThemeController = initTheme({
+		initialOverride: options.initialTheme ?? "system",
+		onOverrideChange: options.onThemeOverrideChange,
+		onEffectiveChange: (effective, override) => {
+			themeButton.textContent = themeIndicatorIcon(override, effective === "dark");
+			const label = `${themeIndicatorLabel(override, effective === "dark")} — ⌥⌘T to cycle`;
+			themeButton.title = label;
+			themeButton.setAttribute("aria-label", label);
+		},
+	});
+	function cycleTheme() {
+		theme.cycle();
+	}
+	themeButton.addEventListener("click", cycleTheme);
+
+	const body = el("main", "merge-host");
+	const statusBar = el("footer", "statusbar");
+	const statusText = el("span", "status-text", "Loading merge input…");
+	statusText.id = "app-message";
+	const abortButton = button("Abort", "btn btn-secondary");
+	abortButton.id = "abort-button";
+	const saveButton = button("Save & Finish", "btn btn-primary");
+	saveButton.id = "save-button";
+	statusBar.append(statusText, el("span", "toolbar-spacer"), abortButton, saveButton);
+	root.append(toolbar, body, statusBar);
+
+	setNavEnabled(false);
+	saveButton.disabled = true;
+
+	let view: ThreeWayView | null = null;
+	let busy = false;
+
+	abortButton.addEventListener("click", () => void onAbort());
+	saveButton.addEventListener("click", () => void onSave());
+
+	// --- Load ---------------------------------------------------------------
+	let input: MergeInputPayload;
+	let mergeResult: ThreeWayMergeResult;
+	try {
+		input = await getMergeInput();
+	} catch (err) {
+		showError(`Failed to load merge input: ${String(err)}`);
+		return;
+	}
+	const title = windowTitleFor(input.fileName);
+	document.title = title;
+	try {
+		// Best-effort: a missing title must never block the merge itself.
+		await options.setWindowTitle?.(title);
+	} catch (err) {
+		console.warn("could not set the window title", err);
+	}
+	try {
+		mergeResult = await computeThreeWayMerge(input.base ?? null, input.local, input.remote);
+	} catch (err) {
+		// Internal-invariant violation in the Rust merge. Never shown a
+		// partial/wrong merge; the user can only abort.
+		showError(`Merge computation failed (internal error): ${String(err)}`);
+		return;
+	}
+	try {
+		view = createThreeWayView(body, input, mergeResult, {
+			computeWordDiff,
+			onUpdate: refreshStatus,
+		});
+	} catch (err) {
+		showError(`Could not display the merge: ${String(err)}`);
+		return;
+	}
+
+	saveButton.disabled = false;
+	setNavEnabled(true);
+	refreshStatus();
+	const first = nextConflict(view.conflictModel, -1);
+	if (first >= 0) view.focusHunk(first);
+
+	prevButton.addEventListener("click", () => navigate(-1));
+	nextButton.addEventListener("click", () => navigate(1));
+	wordDiffToggle.addEventListener("click", () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")));
+	shortcutsButton.addEventListener("click", () => showShortcutsHelp(root));
+	// Not torn down: the app occupies its window for the whole merge-tool
+	// process lifetime (same assumption the ad-hoc listener this replaces
+	// made), so there is no unmount point to call the returned cleanup from.
+	installKeymap({
+		nextConflict: () => navigate(1),
+		prevConflict: () => navigate(-1),
+		acceptLocal: () => acceptSide("local"),
+		acceptRemote: () => acceptSide("remote"),
+		acceptBoth: () => acceptBoth(),
+		save: () => void onSave(),
+		abort: () => void onAbort(),
+		toggleWordDiff: () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")),
+		toggleTheme: () => cycleTheme(),
+		showHelp: () => showShortcutsHelp(root),
+	});
+
+	// --- Behaviour ------------------------------------------------------------
+	function currentHunk(): number {
+		if (!view) return -1;
+		return view.hunkIndexAt(view.resultView.state.selection.main.head);
+	}
+
+	function navigate(direction: 1 | -1) {
+		if (!view) return;
+		const from = currentHunk();
+		const target = direction === 1 ? nextConflict(view.conflictModel, from) : prevConflict(view.conflictModel, from);
+		if (target >= 0) view.focusHunk(target);
+	}
+
+	function setWordDiffEnabled(on: boolean) {
+		wordDiffToggle.classList.toggle("is-on", on);
+		wordDiffToggle.setAttribute("aria-pressed", String(on));
+		view?.setWordDiffEnabled(on);
+	}
+
+	/** Accept `side` for the conflict the result cursor is currently inside. */
+	function acceptSide(side: "local" | "remote") {
+		if (!view) return;
+		const index = currentHunk();
+		if (index >= 0) view.pullHunk(index, side);
+	}
+
+	/** Accept both sides for the conflict the result cursor is currently inside. */
+	function acceptBoth() {
+		if (!view) return;
+		const index = currentHunk();
+		if (index >= 0) view.pullBoth(index);
+	}
+
+	function refreshStatus() {
+		if (!view) return;
+		const conflicts = view.hunks.flatMap((h, i) => (h.kind === "Conflict" ? [i] : []));
+		const unresolved = view.conflictModel.unresolvedCount();
+		const position = conflicts.indexOf(currentHunk());
+		counter.textContent =
+			conflicts.length === 0
+				? "No conflicts"
+				: `Conflict ${position >= 0 ? position + 1 : "–"} of ${conflicts.length}`;
+		setStatus(
+			unresolved === 0
+				? conflicts.length === 0
+					? "Everything merged automatically"
+					: "All conflicts resolved"
+				: `${unresolved} conflict${unresolved === 1 ? "" : "s"} remaining`,
+			unresolved === 0 ? "ok" : "pending",
+		);
+	}
+
+	async function onSave() {
+		if (!view || busy) return;
+		const unresolved = view.conflictModel.unresolvedCount();
+		let force = false;
+		if (unresolved > 0) {
+			const ok = await confirmDialog(root, {
+				title: "Save with unresolved conflicts?",
+				body: `${unresolved} conflict${unresolved === 1 ? " is" : "s are"} still unresolved. Their hunks will be saved as they currently appear in the result (local's version unless you edited them).`,
+				confirmLabel: "Save anyway",
+			});
+			if (!ok) return;
+			// Matches save_result's contract: unresolved > 0 is refused unless forced.
+			force = true;
+		}
+		busy = true;
+		setButtonsDisabled(true);
+		setStatus("Saving…", "pending");
+		try {
+			await saveResult(view.resultView.state.doc.toString(), unresolved, force);
+			// On success the backend exits the process; if we're still here, say so.
+			setStatus("Saved.", "ok");
+		} catch (err) {
+			setStatus(`Save failed: ${String(err)}`, "error");
+		} finally {
+			busy = false;
+			setButtonsDisabled(false);
+		}
+	}
+
+	async function onAbort() {
+		if (busy) return;
+		const ok = await confirmDialog(root, {
+			title: "Abort this merge?",
+			body: "Nothing will be written. Git will treat the file as still conflicted.",
+			confirmLabel: "Abort merge",
+			danger: true,
+		});
+		if (!ok) return;
+		busy = true;
+		setButtonsDisabled(true);
+		try {
+			await abortMerge();
+		} catch (err) {
+			setStatus(`Abort failed: ${String(err)}`, "error");
+		} finally {
+			busy = false;
+			setButtonsDisabled(false);
+		}
+	}
+
+	function showError(message: string) {
+		body.innerHTML = "";
+		const box = el("div", "error-state");
+		box.append(el("h2", "error-title", "Can't show this merge"), el("p", "error-body", message));
+		body.appendChild(box);
+		setStatus(message, "error");
+		saveButton.disabled = true;
+		abortButton.disabled = false;
+	}
+
+	function setStatus(text: string, tone: "ok" | "pending" | "error") {
+		statusText.textContent = text;
+		statusText.dataset.tone = tone;
+	}
+
+	function setNavEnabled(enabled: boolean) {
+		prevButton.disabled = !enabled;
+		nextButton.disabled = !enabled;
+		wordDiffToggle.disabled = !enabled;
+	}
+
+	function setButtonsDisabled(disabled: boolean) {
+		abortButton.disabled = disabled;
+		saveButton.disabled = disabled || !view;
+	}
+}
+
+/**
+ * Minimal in-page confirmation modal (resolves true on confirm, false on
+ * cancel / Escape / backdrop click). Used instead of `window.confirm`,
+ * whose support inside the Tauri 2 macOS webview is not guaranteed.
+ */
+export function confirmDialog(
+	root: HTMLElement,
+	options: { title: string; body: string; confirmLabel: string; danger?: boolean },
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		const previousFocus = document.activeElement as HTMLElement | null;
+		const backdrop = el("div", "modal-backdrop");
+		const card = el("div", "modal-card");
+		card.setAttribute("role", "dialog");
+		card.setAttribute("aria-modal", "true");
+		const title = el("h2", "modal-title", options.title);
+		const text = el("p", "modal-body", options.body);
+		const actions = el("div", "modal-actions");
+		const cancel = button("Cancel", "btn btn-secondary");
+		cancel.dataset.action = "cancel";
+		const confirm = button(options.confirmLabel, options.danger ? "btn btn-danger" : "btn btn-primary");
+		confirm.dataset.action = "confirm";
+		actions.append(cancel, confirm);
+		card.append(title, text, actions);
+		backdrop.appendChild(card);
+		root.appendChild(backdrop);
+		confirm.focus();
+
+		const finish = (result: boolean) => {
+			document.removeEventListener("keydown", onKey, true);
+			backdrop.remove();
+			previousFocus?.focus?.();
+			resolve(result);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				finish(false);
+			}
+		};
+		document.addEventListener("keydown", onKey, true);
+		cancel.addEventListener("click", () => finish(false));
+		confirm.addEventListener("click", () => finish(true));
+		backdrop.addEventListener("mousedown", (event) => {
+			if (event.target === backdrop) finish(false);
+		});
+	});
+}
+
+/**
+ * `?`-triggered keyboard-shortcut help overlay. Reuses the same
+ * `.modal-backdrop`/`.modal-card` styling as `confirmDialog` (per
+ * docs/design/conflate-ui-reference.md's "centered card over a dimmed
+ * backdrop" spec) rather than inventing a second modal look. Content is
+ * generated straight from `KEYMAP_BINDINGS`, so it can't drift out of sync
+ * with the bindings `installKeymap` actually recognizes.
+ */
+export function showShortcutsHelp(root: HTMLElement): void {
+	const previousFocus = document.activeElement as HTMLElement | null;
+	const backdrop = el("div", "modal-backdrop");
+	const card = el("div", "modal-card modal-card-wide");
+	card.setAttribute("role", "dialog");
+	card.setAttribute("aria-modal", "true");
+	const title = el("h2", "modal-title", "Keyboard shortcuts");
+	const list = el("div", "shortcuts-list");
+	for (const binding of KEYMAP_BINDINGS) {
+		const row = el("div", "shortcuts-row");
+		const desc = el("span", "shortcuts-desc", binding.description);
+		const keyCell = el("span", "shortcuts-key");
+		const kbd = document.createElement("kbd");
+		kbd.className = "shortcuts-kbd";
+		kbd.textContent = binding.combo;
+		keyCell.appendChild(kbd);
+		row.append(desc, keyCell);
+		list.appendChild(row);
+	}
+	const actions = el("div", "modal-actions");
+	const close = button("Close", "btn btn-primary");
+	close.dataset.action = "close";
+	actions.append(close);
+	card.append(title, list, actions);
+	backdrop.appendChild(card);
+	root.appendChild(backdrop);
+	close.focus();
+
+	const finish = () => {
+		document.removeEventListener("keydown", onKey, true);
+		backdrop.remove();
+		previousFocus?.focus?.();
+	};
+	const onKey = (event: KeyboardEvent) => {
+		if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			finish();
+		}
+	};
+	document.addEventListener("keydown", onKey, true);
+	close.addEventListener("click", finish);
+	backdrop.addEventListener("mousedown", (event) => {
+		if (event.target === backdrop) finish();
+	});
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== undefined) node.textContent = text;
+	return node;
+}
+
+function button(text: string, className: string, title?: string): HTMLButtonElement {
+	const node = el("button", className, text);
+	node.type = "button";
+	if (title) {
+		node.title = title;
+		node.setAttribute("aria-label", title);
+	}
+	return node;
+}

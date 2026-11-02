@@ -1,0 +1,51 @@
+name: Release
+
+# Builds macOS .app/.dmg bundles and attaches them to a GitHub Release
+# whenever a `v*` tag is pushed (e.g. `v0.1.0`).
+#
+# Builds are unsigned/unnotarized (see README's Gatekeeper note) — v1 scope
+# is macOS-only, so this workflow only runs a macos-latest job.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Conflate ${{ github.ref_name }}"
+          releaseBody: |
+            See the README for install instructions and the Gatekeeper
+            workaround required for this unsigned build.
+          releaseDraft: true
+          prerelease: false

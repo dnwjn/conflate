@@ -1,0 +1,832 @@
+/* Conflate — styles per docs/design/conflate-ui-reference.md.
+ * Light/dark are full palette swaps via custom properties.
+ *
+ * Theme precedence (Task 12): a manual override is applied as a `data-theme`
+ * attribute on <html> by `src/theme.ts` — "light"/"dark" set the attribute,
+ * "system" removes it. The system/default state (no attribute) still falls
+ * back to the live `@media (prefers-color-scheme: dark)` query below, which
+ * is guarded with `:not([data-theme])` so it only ever engages in that
+ * state; a manual override reaches the browser as its own plain
+ * `:root[data-theme="…"]` rule further down, applying regardless of the
+ * live system preference in either direction. The dark palette therefore
+ * appears twice — once gated by the media query (system, OS dark), once
+ * ungated (manual "dark" override, any OS appearance) — because a selector
+ * can't express "OR across a media-query boundary" without duplicating the
+ * declarations on both sides of it. */
+
+:root {
+	--bg: #ffffff;
+	--panel: #f6f8fa;
+	--border: #d8dee4;
+	--text: #1f2328;
+	--muted: #656d76;
+	--gutter-text: #8c959f;
+	--active-line: rgba(31, 35, 40, 0.035);
+	--selection: rgba(84, 174, 255, 0.28);
+
+	--brand: #5b5bd6;
+	--brand-ink: #ffffff;
+	--local: #2563eb;
+	--remote: #9333ea;
+	--danger: #cf222e;
+
+	--conflict-bg: #fdf2e3;
+	--conflict-border: #e8a33d;
+	--conflict-ink: #92400e;
+	--auto-bg: #e9f7ee;
+	--auto-border: #86c99b;
+	--auto-ink: #1a7f37;
+
+	--live-local-bg: rgba(37, 99, 235, 0.08);
+	--live-remote-bg: rgba(147, 51, 234, 0.08);
+	--word-local-bg: rgba(37, 99, 235, 0.24);
+	--word-remote-bg: rgba(147, 51, 234, 0.24);
+
+	/* syntax (classHighlighter tok-* classes) */
+	--tok-keyword: #cf222e;
+	--tok-string: #0a3069;
+	--tok-comment: #6e7781;
+	--tok-number: #0550ae;
+	--tok-type: #953800;
+	--tok-function: #8250df;
+	--tok-property: #0550ae;
+	--tok-meta: #6e7781;
+
+	--ui-font: -apple-system, "SF Pro Text", BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+	--code-font: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+	color-scheme: light;
+	font-family: var(--ui-font);
+	font-size: 13px;
+	color: var(--text);
+	background: var(--bg);
+	-webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+	/* Only engages when there's no manual override — see the file-header note. */
+	:root:not([data-theme]) {
+		--bg: #0d1117;
+		--panel: #11161d;
+		--border: #2b3340;
+		--text: #e6edf3;
+		--muted: #8d96a0;
+		--gutter-text: #6e7681;
+		--active-line: rgba(230, 237, 243, 0.04);
+		--selection: rgba(56, 139, 253, 0.33);
+
+		--brand: #8688f0;
+		--brand-ink: #0d1117;
+		--local: #58a6ff;
+		--remote: #c792ea;
+		--danger: #f85149;
+
+		--conflict-bg: #2b2111;
+		--conflict-border: #a97327;
+		--conflict-ink: #f0b429;
+		--auto-bg: #0f2317;
+		--auto-border: #2f6b43;
+		--auto-ink: #56d364;
+
+		--live-local-bg: rgba(88, 166, 255, 0.1);
+		--live-remote-bg: rgba(199, 146, 234, 0.1);
+		--word-local-bg: rgba(88, 166, 255, 0.3);
+		--word-remote-bg: rgba(199, 146, 234, 0.3);
+
+		--tok-keyword: #ff7b72;
+		--tok-string: #a5d6ff;
+		--tok-comment: #8b949e;
+		--tok-number: #79c0ff;
+		--tok-type: #ffa657;
+		--tok-function: #d2a8ff;
+		--tok-property: #79c0ff;
+		--tok-meta: #8b949e;
+
+		color-scheme: dark;
+	}
+}
+
+/* Manual "dark" override: applies regardless of the live OS preference (the
+ * block above only fires when the OS itself prefers dark). Declarations
+ * duplicated from the block above — see the file-header note on why this
+ * can't be expressed as one rule. */
+:root[data-theme="dark"] {
+	--bg: #0d1117;
+	--panel: #11161d;
+	--border: #2b3340;
+	--text: #e6edf3;
+	--muted: #8d96a0;
+	--gutter-text: #6e7681;
+	--active-line: rgba(230, 237, 243, 0.04);
+	--selection: rgba(56, 139, 253, 0.33);
+
+	--brand: #8688f0;
+	--brand-ink: #0d1117;
+	--local: #58a6ff;
+	--remote: #c792ea;
+	--danger: #f85149;
+
+	--conflict-bg: #2b2111;
+	--conflict-border: #a97327;
+	--conflict-ink: #f0b429;
+	--auto-bg: #0f2317;
+	--auto-border: #2f6b43;
+	--auto-ink: #56d364;
+
+	--live-local-bg: rgba(88, 166, 255, 0.1);
+	--live-remote-bg: rgba(199, 146, 234, 0.1);
+	--word-local-bg: rgba(88, 166, 255, 0.3);
+	--word-remote-bg: rgba(199, 146, 234, 0.3);
+
+	--tok-keyword: #ff7b72;
+	--tok-string: #a5d6ff;
+	--tok-comment: #8b949e;
+	--tok-number: #79c0ff;
+	--tok-type: #ffa657;
+	--tok-function: #d2a8ff;
+	--tok-property: #79c0ff;
+	--tok-meta: #8b949e;
+
+	color-scheme: dark;
+}
+
+/* Manual "light" override: the base (un-media-queried) `:root` block at the
+ * top of this file already supplies every light value and always matches,
+ * so a `data-theme="light"` element needs no extra declarations here to win
+ * over the dark rules above — neither of those matches it (both are
+ * explicitly scoped away from an element carrying a `data-theme` attribute,
+ * or to `data-theme="dark"` specifically). This rule exists only so that
+ * fact is documented at the point a reader would look for it, and as a
+ * future-proofing anchor if a light-specific override value is ever needed. */
+:root[data-theme="light"] {
+	color-scheme: light;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	background: var(--bg);
+	overflow: hidden;
+}
+
+#app.app {
+	display: flex;
+	flex-direction: column;
+	height: 100vh;
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+
+button {
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+}
+
+button:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.btn {
+	height: 28px;
+	padding: 0 14px;
+	border-radius: 6px;
+	border: 1px solid var(--border);
+	background: var(--bg);
+	font-weight: 500;
+}
+
+.btn:not(:disabled):hover {
+	border-color: var(--muted);
+}
+
+.btn-primary {
+	background: var(--brand);
+	border-color: var(--brand);
+	color: var(--brand-ink);
+}
+
+.btn-primary:not(:disabled):hover {
+	border-color: var(--brand);
+	filter: brightness(1.08);
+}
+
+.btn-danger {
+	background: var(--danger);
+	border-color: var(--danger);
+	color: #fff;
+}
+
+button:focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 1px;
+}
+
+/* ---- Toolbar ------------------------------------------------------------ */
+
+.toolbar {
+	flex: 0 0 46px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 12px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--border);
+}
+
+.toolbar-brand {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-weight: 600;
+}
+
+.brand-mark {
+	color: var(--brand);
+	font-size: 15px;
+}
+
+.toolbar-divider {
+	width: 1px;
+	height: 20px;
+	margin: 0 6px;
+	background: var(--border);
+}
+
+.toolbar-spacer {
+	flex: 1;
+}
+
+.toolbar-button,
+.toolbar-toggle {
+	height: 26px;
+	min-width: 26px;
+	padding: 0 8px;
+	border-radius: 6px;
+	border: 1px solid var(--border);
+	background: var(--bg);
+	font-size: 14px;
+	line-height: 1;
+}
+
+.toolbar-toggle {
+	font-size: 12px;
+	color: var(--muted);
+}
+
+.toolbar-toggle.is-on {
+	color: var(--brand);
+	border-color: var(--brand);
+}
+
+.conflict-counter {
+	margin-left: 6px;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---- Panes ---------------------------------------------------------------- */
+
+.merge-host {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+}
+
+.tw-root {
+	flex: 1;
+	min-width: 0;
+}
+
+.tw-panes {
+	display: flex;
+	height: 100%;
+}
+
+.tw-pane {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	border-right: 1px solid var(--border);
+}
+
+.tw-pane:last-child {
+	border-right: none;
+}
+
+.tw-pane-local,
+.tw-pane-remote {
+	flex: 0 1 400px;
+	min-width: 220px;
+}
+
+.tw-pane-result {
+	flex: 1 1 auto;
+}
+
+.tw-pane-header {
+	flex: 0 0 30px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 10px;
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	color: var(--muted);
+	background: var(--panel);
+	border-bottom: 1px solid var(--border);
+	white-space: nowrap;
+}
+
+.tw-pane-label {
+	font-weight: 600;
+	color: var(--text);
+}
+
+.tw-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--muted);
+}
+
+.tw-pane-local .tw-dot {
+	background: var(--local);
+}
+
+.tw-pane-remote .tw-dot {
+	background: var(--remote);
+}
+
+.tw-pane-result .tw-dot {
+	background: var(--brand);
+}
+
+.tw-unresolved-pill {
+	margin-left: auto;
+	padding: 1px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	letter-spacing: 0;
+	color: var(--conflict-ink);
+	background: var(--conflict-bg);
+	border: 1px solid var(--conflict-border);
+}
+
+.tw-unresolved-pill.tw-unresolved-pill-done {
+	color: var(--auto-ink);
+	background: var(--auto-bg);
+	border-color: var(--auto-border);
+}
+
+.tw-editor {
+	flex: 1;
+	min-height: 0;
+}
+
+/* ---- CodeMirror ------------------------------------------------------------ */
+
+.tw-root .cm-editor {
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+}
+
+.tw-root .cm-editor.cm-focused {
+	outline: none;
+}
+
+.tw-root .cm-scroller {
+	font-family: var(--code-font);
+	font-size: 12.5px;
+	line-height: 20px;
+}
+
+.tw-root .cm-gutters {
+	background: var(--bg);
+	border-right: 1px solid var(--border);
+	color: var(--gutter-text);
+}
+
+.tw-root .cm-lineNumbers .cm-gutterElement {
+	min-width: 36px;
+	padding: 0 8px 0 6px;
+	text-align: right;
+}
+
+.tw-root .cm-activeLine,
+.tw-root .cm-activeLineGutter {
+	background: var(--active-line);
+}
+
+.tw-root .cm-selectionBackground,
+.tw-root .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
+	background: var(--selection);
+}
+
+.tw-root .cm-cursor {
+	border-left-color: var(--text);
+}
+
+.tw-root .cm-line {
+	position: relative;
+}
+
+/* Room for the floating pull arrows / pill in the result pane. */
+.tw-pane-result .cm-line {
+	padding-left: 26px;
+	padding-right: 120px;
+}
+
+/* -- Live side-vs-result differences (side panes) -- */
+
+.tw-root .cm-line.cm-live-diff-local {
+	background: var(--live-local-bg);
+}
+
+.tw-root .cm-line.cm-live-diff-remote {
+	background: var(--live-remote-bg);
+}
+
+.tw-root .cm-line.cm-live-gap {
+	background: transparent;
+	box-shadow: inset 0 2px 0 var(--muted);
+}
+
+.tw-root .cm-line.cm-live-gap.cm-live-gap-end {
+	box-shadow: inset 0 -2px 0 var(--muted);
+}
+
+.tw-pane-local .cm-line.cm-live-gap {
+	box-shadow: inset 0 2px 0 var(--local);
+}
+
+.tw-pane-remote .cm-line.cm-live-gap {
+	box-shadow: inset 0 2px 0 var(--remote);
+}
+
+/* -- Hunk bands -- */
+
+.tw-root .cm-hunk-conflict {
+	--hunk-border: var(--conflict-border);
+}
+
+.tw-root .cm-hunk-auto,
+.tw-root .cm-hunk-resolved {
+	--hunk-border: var(--auto-border);
+}
+
+.tw-root .cm-line.cm-hunk-conflict {
+	background: var(--conflict-bg);
+}
+
+.tw-pane-result .cm-line.cm-hunk-auto,
+.tw-pane-result .cm-line.cm-hunk-resolved {
+	background: var(--auto-bg);
+}
+
+.tw-root .cm-line.cm-hunk-first {
+	box-shadow: inset 0 1px 0 var(--hunk-border);
+}
+
+.tw-root .cm-line.cm-hunk-last {
+	box-shadow: inset 0 -1px 0 var(--hunk-border);
+}
+
+.tw-root .cm-line.cm-hunk-first.cm-hunk-last {
+	box-shadow:
+		inset 0 1px 0 var(--hunk-border),
+		inset 0 -1px 0 var(--hunk-border);
+}
+
+/* Zero-width hunk (nothing on this side / in the result): a rule between lines. */
+.tw-root .cm-line.cm-hunk-gap {
+	box-shadow: inset 0 2px 0 var(--hunk-border);
+}
+
+.tw-root .cm-line.cm-hunk-gap.cm-hunk-gap-end {
+	box-shadow: inset 0 -2px 0 var(--hunk-border);
+}
+
+.tw-pane-result .cm-line.cm-hunk-gap {
+	background: transparent;
+}
+
+/* Side panes: a resolved conflict keeps only its (green) border rules and no
+ * band fill; the live-diff tint then shows whether this side matches what
+ * was chosen in the result. */
+
+/* -- Word-level highlights -- */
+
+.tw-root .cm-word-local {
+	background: var(--word-local-bg);
+	border-radius: 2px;
+}
+
+.tw-root .cm-word-remote {
+	background: var(--word-remote-bg);
+	border-radius: 2px;
+}
+
+/* -- Pull arrows + status pill (result pane) --
+ *
+ * The result pane does not wrap lines, so `.cm-line` is as wide as the
+ * widest line in the document (CodeMirror sizes every line to the content
+ * width when wrapping is off). `.cm-hunk-controls` is an inline widget
+ * positioned `absolute; inset: 0` over its own `.cm-line`, purely so it
+ * overlays the text without disturbing layout/flow — its box is therefore
+ * exactly as wide as that (possibly very wide) line, not the visible pane.
+ *
+ * Previously the arrows/pill were positioned `absolute` within that box, so
+ * `right: Npx` anchored them N px from the *line's* right edge — off past
+ * the visible edge of the scroller on any document with a line wider than
+ * the pane (this was the bug). `left: 4px` has the same failure mode in the
+ * opposite direction: it anchors to document column 0, which scrolls out of
+ * view to the left as soon as the user scrolls right to read a long line
+ * elsewhere in the hunk.
+ *
+ * Fix (chosen over a separate overlay/gutter layer, or enabling
+ * `lineWrapping` on the result pane — see the Task 10 report's fix addendum
+ * for the full tradeoff writeup): give each control `position: sticky`
+ * instead of `absolute`, with no vertical offset, so `left`/`right` are
+ * measured against the nearest scrolling ancestor (`.cm-scroller`) and
+ * clamped within the element's containing block (the full-line-width
+ * `.cm-hunk-controls` box, always at least as wide as the viewport). This
+ * keeps each control onscreen regardless of scroll position or document
+ * line width, while the pane keeps horizontal scrolling for long lines
+ * (long lines are the common case in a code merge tool, so forcing
+ * `lineWrapping` would degrade the editing experience just to work around
+ * this one bug).
+ *
+ * `right`-anchored sticky only engages once the element's own *static* (not
+ * stuck) flow position is at or past the sticky edge it's anchored to — the
+ * same mechanism that lets a table's sticky last column stay pinned to the
+ * view. A plain inline child would statically sit at the *start* of this
+ * (huge) box regardless of a `right` offset, so `.cm-hunk-controls` is a
+ * flex row and the pill + remote arrow get `margin-left: auto`, which pushes
+ * their static position to the box's far right edge — the same side as
+ * their sticky anchor — before the sticky clamp ever has to act. The local
+ * arrow needs no such push: its static (flex-start) position is already on
+ * the same side as its `left` anchor. Vertical placement is left to normal
+ * flex/inline flow (no `top`/`bottom` offset) so the controls stay pinned to
+ * their own line instead of sticking vertically as the pane scrolls. */
+
+.cm-hunk-controls {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: flex-start;
+	pointer-events: none;
+	font-family: var(--ui-font);
+}
+
+.cm-pull-arrow {
+	position: sticky;
+	flex: none;
+	margin-top: 2px;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border-radius: 50%;
+	border: none;
+	font-size: 11px;
+	line-height: 16px;
+	text-align: center;
+	color: #fff;
+	pointer-events: auto;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+	transition: transform 0.1s;
+}
+
+.cm-pull-arrow:hover {
+	transform: scale(1.15);
+}
+
+.cm-pull-local {
+	left: 4px;
+	background: var(--local);
+}
+
+.cm-pull-remote {
+	right: 4px;
+	margin-left: auto;
+	background: var(--remote);
+}
+
+.cm-hunk-pill {
+	position: sticky;
+	flex: none;
+	margin-top: 3px;
+	margin-left: auto;
+	right: 26px;
+	padding: 0 6px;
+	border-radius: 999px;
+	font-size: 10px;
+	line-height: 14px;
+	pointer-events: none;
+	border: 1px solid var(--auto-border);
+	color: var(--auto-ink);
+	background: var(--bg);
+}
+
+/* -- Syntax tokens (classHighlighter) -- */
+
+.tok-keyword,
+.tok-operatorKeyword,
+.tok-controlKeyword,
+.tok-definitionKeyword,
+.tok-moduleKeyword {
+	color: var(--tok-keyword);
+}
+
+.tok-string,
+.tok-string2,
+.tok-regexp,
+.tok-url {
+	color: var(--tok-string);
+}
+
+.tok-comment {
+	color: var(--tok-comment);
+	font-style: italic;
+}
+
+.tok-number,
+.tok-bool,
+.tok-atom,
+.tok-literal {
+	color: var(--tok-number);
+}
+
+.tok-typeName,
+.tok-className,
+.tok-namespace {
+	color: var(--tok-type);
+}
+
+.tok-function,
+.tok-macroName {
+	color: var(--tok-function);
+}
+
+.tok-propertyName,
+.tok-attributeName {
+	color: var(--tok-property);
+}
+
+.tok-meta,
+.tok-processingInstruction {
+	color: var(--tok-meta);
+}
+
+.tok-heading {
+	font-weight: 600;
+}
+
+.tok-invalid {
+	color: var(--danger);
+}
+
+/* ---- Status bar ------------------------------------------------------------ */
+
+.statusbar {
+	flex: 0 0 44px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 12px;
+	background: var(--panel);
+	border-top: 1px solid var(--border);
+}
+
+.status-text {
+	color: var(--muted);
+}
+
+.status-text[data-tone="pending"] {
+	color: var(--conflict-ink);
+}
+
+.status-text[data-tone="ok"] {
+	color: var(--auto-ink);
+}
+
+.status-text[data-tone="error"] {
+	color: var(--danger);
+}
+
+/* ---- Error state ------------------------------------------------------------ */
+
+.error-state {
+	margin: auto;
+	max-width: 560px;
+	padding: 24px;
+	text-align: center;
+}
+
+.error-title {
+	font-size: 16px;
+	margin: 0 0 8px;
+}
+
+.error-body {
+	margin: 0;
+	color: var(--muted);
+	font-family: var(--code-font);
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ---- Modal ------------------------------------------------------------------ */
+
+.modal-backdrop {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	background: rgba(0, 0, 0, 0.35);
+	z-index: 100;
+}
+
+.modal-card {
+	width: min(420px, 100%);
+	padding: 20px;
+	border-radius: 10px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+}
+
+.modal-title {
+	margin: 0 0 8px;
+	font-size: 15px;
+}
+
+.modal-body {
+	margin: 0 0 18px;
+	color: var(--muted);
+	line-height: 1.45;
+}
+
+.modal-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* ---- Keyboard-shortcut help overlay (reuses .modal-backdrop/.modal-card) --- */
+
+.modal-card-wide {
+	width: min(420px, 100%);
+}
+
+.shortcuts-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin-bottom: 18px;
+}
+
+.shortcuts-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.shortcuts-row:last-child {
+	border-bottom: none;
+}
+
+.shortcuts-desc {
+	color: var(--text);
+}
+
+.shortcuts-key {
+	flex: none;
+}
+
+.shortcuts-kbd {
+	display: inline-block;
+	min-width: 1.6em;
+	padding: 2px 7px;
+	border-radius: 5px;
+	border: 1px solid var(--border);
+	background: var(--panel);
+	color: var(--muted);
+	font-family: var(--code-font);
+	font-size: 11px;
+	line-height: 1.5;
+	text-align: center;
+}
