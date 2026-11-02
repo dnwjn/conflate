@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "dev:stub": "tauri dev -- -- -- \"$PWD/dev-fixtures/sample/base.ts\" \"$PWD/dev-fixtures/sample/local.ts\" \"$PWD/dev-fixtures/sample/remote.ts\" /tmp/conflate-merged.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
