@@ -93,10 +93,20 @@ export interface ThreeWayView {
     /** Replaces the hunk's live result range with `side`'s text and marks it resolved. Returns false if nothing changed. */
     pullHunk(hunkIndex: number, side: Side): boolean;
     /**
+     * PhpStorm-style "accept this side" — the arrows in the RESULT pane
+     * (and the ⌥⌘←/⌥⌘→ keybindings) use this instead of `pullHunk`. If the
+     * OTHER side is already cleanly in place, this appends `side` after it
+     * (stacking both, always local-then-remote) rather than replacing it;
+     * otherwise it's a plain `pullHunk`. Returns false if nothing changed.
+     */
+    acceptSide(hunkIndex: number, side: Side): boolean;
+    /**
      * Replaces the hunk's live result range with BOTH sides' text (local's
-     * lines followed by remote's) and marks it resolved. See "Accept both"
-     * semantics in `keymap.ts` for why this order was chosen. Returns false
-     * if nothing changed.
+     * lines followed by remote's) and marks it resolved in one step,
+     * regardless of the hunk's current state — unlike `acceptSide`, which
+     * only stacks when the other side is already cleanly in place. See
+     * "Accept both" semantics in `keymap.ts` for why this order was chosen.
+     * Returns false if nothing changed.
      */
     pullBoth(hunkIndex: number): boolean;
     /**
@@ -203,10 +213,8 @@ class HunkControlsWidget extends WidgetType {
         readonly index: number,
         readonly canPullLocal: boolean,
         readonly canPullRemote: boolean,
-        readonly canPullBoth: boolean,
         readonly pill: string | null,
         readonly onPull: (index: number, side: Side) => void,
-        readonly onPullBoth: (index: number) => void,
     ) {
         super();
     }
@@ -216,7 +224,6 @@ class HunkControlsWidget extends WidgetType {
             other.index === this.index &&
             other.canPullLocal === this.canPullLocal &&
             other.canPullRemote === this.canPullRemote &&
-            other.canPullBoth === this.canPullBoth &&
             other.pill === this.pill
         );
     }
@@ -229,7 +236,6 @@ class HunkControlsWidget extends WidgetType {
             wrap.appendChild(
                 this.button('local', '←', 'Accept local for this hunk'),
             );
-        if (this.canPullBoth) wrap.appendChild(this.bothButton());
         // Pill + remote arrow share ONE sticky-right-anchored group (rather
         // than each being independently `position: sticky; right: Npx`) so
         // they lay out side-by-side with a real CSS gap instead of two fixed
@@ -265,23 +271,6 @@ class HunkControlsWidget extends WidgetType {
         button.addEventListener('click', (event) => {
             event.preventDefault();
             this.onPull(this.index, side);
-        });
-        return button;
-    }
-
-    /** Stacks local's lines then remote's into the hunk — see `pullBoth`. */
-    private bothButton(): HTMLElement {
-        const title = 'Accept both (local, then remote)';
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'cm-pull-arrow cm-pull-both';
-        button.textContent = '⇵';
-        button.title = title;
-        button.setAttribute('aria-label', title);
-        button.addEventListener('mousedown', (event) => event.preventDefault());
-        button.addEventListener('click', (event) => {
-            event.preventDefault();
-            this.onPullBoth(this.index);
         });
         return button;
     }
@@ -592,34 +581,21 @@ export function createThreeWayView(
                 open ||
                 computePullChange(doc, range, hunk.remote_text, covering) !==
                     null;
-            const canPullBoth =
-                hunk.kind === 'Conflict' &&
-                (open ||
-                    computePullChange(
-                        doc,
-                        range,
-                        hunk.local_text + hunk.remote_text,
-                        covering,
-                    ) !== null);
             const pill = conflictModel.wasAutoMerged(i)
                 ? 'auto-merged'
                 : hunk.kind === 'Conflict' && resolved
                   ? 'resolved'
                   : null;
-            if (canPullLocal || canPullRemote || canPullBoth || pill) {
+            if (canPullLocal || canPullRemote || pill) {
                 decos.push(
                     Decoration.widget({
                         widget: new HunkControlsWidget(
                             i,
                             canPullLocal,
                             canPullRemote,
-                            canPullBoth,
                             pill,
                             (index, side) => {
-                                pullHunk(index, side);
-                            },
-                            (index) => {
-                                pullBoth(index);
+                                acceptSide(index, side);
                             },
                         ),
                         side: -1,
@@ -1031,10 +1007,62 @@ export function createThreeWayView(
         return true;
     }
 
+    /**
+     * PhpStorm-style stacking: accepting a side while the OTHER side is
+     * already cleanly in place (the hunk's live range holds exactly that
+     * side's text, not something hand-edited away from it) appends this
+     * side after it instead of replacing it — so "accept local" then
+     * "accept remote" (in either order) keeps both, always arranged
+     * local-then-remote (see `pullBoth`'s doc comment for why that order).
+     * Anything else — the first pull on a hunk, accepting the same side
+     * again, or a result already hand-edited away from either side's exact
+     * text — isn't representable as a stack, so it falls back to a plain
+     * replace: stacking isn't always possible.
+     */
     function pullHunk(hunkIndex: number, side: Side): boolean {
         return pullText(
             hunkIndex,
             sideText(hunkIndex, side),
+            `input.pull.${side}`,
+        );
+    }
+
+    /**
+     * PhpStorm-style "accept this side": like `pullHunk`, but if the OTHER
+     * side is already cleanly in place (the hunk's live range holds exactly
+     * that side's text, not something hand-edited away from it) this
+     * appends `side` after it instead of replacing it — so accepting local
+     * then remote (in either order) keeps both, always arranged
+     * local-then-remote (see `pullBoth`'s doc comment for why that order).
+     * Falls back to a plain `pullHunk` replace whenever that isn't
+     * representable — the first pull on a hunk, accepting the same side
+     * again, or a result already hand-edited away from either side's exact
+     * text — since stacking isn't always possible.
+     */
+    function acceptSide(hunkIndex: number, side: Side): boolean {
+        const hunk = hunks[hunkIndex];
+        // Only stack onto a hunk the user has already explicitly resolved —
+        // an untouched Conflict starts seeded with local's text ("ours
+        // first"), so checking content alone would wrongly treat accepting
+        // remote on a still-open conflict as "local was already accepted".
+        if (hunk.kind !== 'Conflict' || !conflictModel.isResolved(hunkIndex))
+            return pullHunk(hunkIndex, side);
+        const otherSide: Side = side === 'local' ? 'remote' : 'local';
+        const range = conflictModel.rangeFor(hunkIndex);
+        // ConflictModel's tracked range excludes the hunk's own trailing
+        // line break (see `computePullChange`'s doc comment), but `*_text`
+        // ends with one — strip it before comparing, same as
+        // `computePullChange`'s `sideBody`, or this would never match.
+        const otherText = sideText(hunkIndex, otherSide);
+        const otherBody = otherText.endsWith('\n')
+            ? otherText.slice(0, -1)
+            : otherText;
+        const stacking =
+            resultView.state.sliceDoc(range.from, range.to) === otherBody;
+        if (!stacking) return pullHunk(hunkIndex, side);
+        return pullText(
+            hunkIndex,
+            hunk.local_text + hunk.remote_text,
             `input.pull.${side}`,
         );
     }
@@ -1090,6 +1118,7 @@ export function createThreeWayView(
         conflictModel,
         hunks,
         pullHunk,
+        acceptSide,
         pullBoth,
         hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
         focusHunk,

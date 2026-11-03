@@ -318,7 +318,7 @@ export async function mountApp(
     function acceptSide(side: 'local' | 'remote') {
         if (!view) return;
         const index = currentHunk();
-        if (index >= 0) view.pullHunk(index, side);
+        if (index >= 0) view.acceptSide(index, side);
     }
 
     /** Accept both sides for the conflict the result cursor is currently inside. */

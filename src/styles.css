@@ -690,10 +690,6 @@ button:focus-visible {
 	background: var(--remote);
 }
 
-.cm-pull-both {
-	background: var(--brand);
-}
-
 .cm-hunk-pill {
 	flex: none;
 	padding: 0 6px;

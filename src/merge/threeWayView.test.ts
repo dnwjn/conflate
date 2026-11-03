@@ -324,9 +324,6 @@ test('pull arrows: both on an open conflict, otherwise only where pulling would 
     // result holds local's text, so only "accept remote" is offered.
     expect(resultDom.querySelectorAll('.cm-pull-local')).toHaveLength(1);
     expect(resultDom.querySelectorAll('.cm-pull-remote')).toHaveLength(2);
-    // "Accept both" only ever applies to the one genuine Conflict hunk, not
-    // the LocalOnly one.
-    expect(resultDom.querySelectorAll('.cm-pull-both')).toHaveLength(1);
     expect(
         resultDom.querySelectorAll('.cm-hunk-pill-auto-merged'),
     ).toHaveLength(1);
@@ -340,14 +337,57 @@ test('pull arrows: both on an open conflict, otherwise only where pulling would 
     );
 });
 
-test('"accept both" stacks local then remote for an open conflict via its toolbar arrow', () => {
+test('accepting one side then the other stacks them, PhpStorm-style, instead of replacing', () => {
     const { view, container } = setup();
     const resultDom = container.querySelector('.tw-pane-result')!;
-    (resultDom.querySelector('.cm-pull-both') as HTMLElement).click();
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    expect(view.conflictModel.isResolved(1)).toBe(true);
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nthree\nfour local\n',
+    );
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
     expect(view.resultView.state.doc.toString()).toBe(
         'one\nlocal two\nremote two\nthree\nfour local\n',
     );
-    expect(view.conflictModel.isResolved(1)).toBe(true);
+});
+
+test('the stack keeps local-then-remote order even when remote is accepted first', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
+    );
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nremote two\nthree\nfour local\n',
+    );
+});
+
+test("stacking isn't always possible: an untouched (unresolved) conflict never stacks on its first accept, even though it's pre-seeded with local's text", () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    // The conflict starts seeded with local's text ("ours first") but is
+    // still unresolved — accepting remote here must be a plain replace, not
+    // "local was already accepted, so stack".
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
+    );
+});
+
+test("stacking isn't always possible: once an already-resolved hunk is hand-edited away from either side's exact text, the other arrow just replaces", () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    const range = view.conflictModel.rangeFor(1);
+    view.resultView.dispatch({
+        changes: { from: range.from, to: range.to, insert: 'hand-edited' },
+    });
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
+    );
 });
 
 test('word diff marks substantive changes and skips whitespace-only ops; toggle hides them', async () => {
