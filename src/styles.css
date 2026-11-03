@@ -283,6 +283,9 @@ button:focus-visible {
 
 .toolbar-button,
 .toolbar-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	height: 26px;
 	min-width: 26px;
 	padding: 0 8px;

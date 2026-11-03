@@ -33,6 +33,10 @@ export interface MountAppOptions {
  * multi-file `git mergetool` run shows which file is open (per the design
  * reference's "filename in title bar").
  */
+const ICON_SIZE = 14;
+const UNDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`;
+const REDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>`;
+
 export function windowTitleFor(fileName: string): string {
 	return fileName ? `${fileName} — Conflate` : "Conflate";
 }
@@ -56,8 +60,8 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	const counter = el("span", "conflict-counter", "");
 	const autoMergeButton = button("Auto-merge", "toolbar-button", "Resolve conflicts where both sides agree modulo whitespace");
 	autoMergeButton.id = "auto-merge-button";
-	const undoButton = button("↶", "toolbar-button", "Undo (⌘Z)");
-	const redoButton = button("↷", "toolbar-button", "Redo (⇧⌘Z)");
+	const undoButton = iconButton(UNDO_ICON, "toolbar-button", "Undo (⌘Z)");
+	const redoButton = iconButton(REDO_ICON, "toolbar-button", "Redo (⇧⌘Z)");
 	undoButton.disabled = true;
 	redoButton.disabled = true;
 	const wordDiffToggle = button("Word diff", "toolbar-toggle is-on", "Toggle word-level highlighting (⌥⌘H)");
@@ -500,5 +504,15 @@ function button(text: string, className: string, title?: string): HTMLButtonElem
 		node.title = title;
 		node.setAttribute("aria-label", title);
 	}
+	return node;
+}
+
+/** Same as `button`, but with a static trusted SVG icon instead of a text label. */
+function iconButton(svg: string, className: string, title: string): HTMLButtonElement {
+	const node = el("button", className);
+	node.type = "button";
+	node.innerHTML = svg;
+	node.title = title;
+	node.setAttribute("aria-label", title);
 	return node;
 }
