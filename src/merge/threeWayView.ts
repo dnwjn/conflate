@@ -1,4 +1,14 @@
-import { history, historyKeymap, defaultKeymap, indentWithTab, invertedEffects } from "@codemirror/commands";
+import {
+	history,
+	historyKeymap,
+	defaultKeymap,
+	indentWithTab,
+	invertedEffects,
+	undo as cmUndo,
+	redo as cmRedo,
+	undoDepth,
+	redoDepth,
+} from "@codemirror/commands";
 import { LanguageDescription, syntaxHighlighting } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { Chunk, type DiffConfig } from "@codemirror/merge";
@@ -58,6 +68,8 @@ export interface ThreeWayViewOptions {
 	paneWidths?: { local: number; remote: number };
 	/** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths (CSS px), so the caller can persist them. */
 	onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
+	/** Called whenever the result editor's undo/redo availability may have changed. */
+	onHistoryChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
 }
 
 /** Keeps a side pane usable and the result pane from being squeezed away by a drag. */
@@ -105,6 +117,12 @@ export interface ThreeWayView {
 	flushPendingDiff(): void;
 	/** Number of side re-diffs performed so far (diagnostics/tests). */
 	readonly recomputeCount: number;
+	/** Undoes the last result-pane edit/hunk resolution. Returns false if there's nothing to undo. */
+	undo(): boolean;
+	/** Redoes the last undone result-pane edit/hunk resolution. Returns false if there's nothing to redo. */
+	redo(): boolean;
+	canUndo(): boolean;
+	canRedo(): boolean;
 	destroy(): void;
 }
 
@@ -548,6 +566,12 @@ export function createThreeWayView(
 						updateHeader();
 						options.onUpdate?.();
 					}
+					if (update.docChanged || update.transactions.some((tr) => tr.effects.length)) {
+						options.onHistoryChange?.({
+							canUndo: undoDepth(update.state) > 0,
+							canRedo: redoDepth(update.state) > 0,
+						});
+					}
 				}),
 			],
 		}),
@@ -852,6 +876,7 @@ export function createThreeWayView(
 	rediff();
 	void loadLanguage();
 	void loadWordDiffs();
+	options.onHistoryChange?.({ canUndo: undoDepth(resultView.state) > 0, canRedo: redoDepth(resultView.state) > 0 });
 
 	return {
 		localView,
@@ -879,6 +904,10 @@ export function createThreeWayView(
 		get recomputeCount() {
 			return recomputeCount;
 		},
+		undo: () => cmUndo(resultView),
+		redo: () => cmRedo(resultView),
+		canUndo: () => undoDepth(resultView.state) > 0,
+		canRedo: () => redoDepth(resultView.state) > 0,
 		destroy() {
 			if (destroyed) return;
 			destroyed = true;

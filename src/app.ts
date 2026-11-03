@@ -56,6 +56,10 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	const counter = el("span", "conflict-counter", "");
 	const autoMergeButton = button("Auto-merge", "toolbar-button", "Resolve conflicts where both sides agree modulo whitespace");
 	autoMergeButton.id = "auto-merge-button";
+	const undoButton = button("↶", "toolbar-button", "Undo (⌘Z)");
+	const redoButton = button("↷", "toolbar-button", "Redo (⇧⌘Z)");
+	undoButton.disabled = true;
+	redoButton.disabled = true;
 	const wordDiffToggle = button("Word diff", "toolbar-toggle is-on", "Toggle word-level highlighting (⌥⌘H)");
 	wordDiffToggle.setAttribute("aria-pressed", "true");
 	const themeButton = button("◐", "toolbar-button", "Toggle theme (⌥⌘T)");
@@ -67,6 +71,8 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		nextButton,
 		counter,
 		autoMergeButton,
+		undoButton,
+		redoButton,
 		el("span", "toolbar-spacer"),
 		wordDiffToggle,
 		themeButton,
@@ -161,6 +167,10 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 			onUpdate: refreshStatus,
 			paneWidths: options.initialPaneWidths,
 			onPaneWidthsChange: options.onPaneWidthsChange,
+			onHistoryChange: ({ canUndo, canRedo }) => {
+				undoButton.disabled = !canUndo;
+				redoButton.disabled = !canRedo;
+			},
 		});
 	} catch (err) {
 		showError(`Could not display the merge: ${String(err)}`);
@@ -175,6 +185,8 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	prevButton.addEventListener("click", () => navigate(-1));
 	nextButton.addEventListener("click", () => navigate(1));
 	autoMergeButton.addEventListener("click", () => onAutoMerge());
+	undoButton.addEventListener("click", () => view?.undo());
+	redoButton.addEventListener("click", () => view?.redo());
 	wordDiffToggle.addEventListener("click", () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")));
 	shortcutsButton.addEventListener("click", () => showShortcutsHelp(root));
 	// Not torn down: the app occupies its window for the whole merge-tool
@@ -188,6 +200,8 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		acceptBoth: () => acceptBoth(),
 		save: () => void onSave(),
 		abort: () => void onAbort(),
+		undo: () => view?.undo(),
+		redo: () => view?.redo(),
 		toggleWordDiff: () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")),
 		toggleTheme: () => cycleTheme(),
 		showHelp: () => showShortcutsHelp(root),

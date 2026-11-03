@@ -21,6 +21,8 @@ test("every binding in the help table is recognized by matchBinding and vice ver
 		acceptLocal: matchBinding(keyEvent({ code: "ArrowLeft", metaKey: true, altKey: true })) === "acceptLocal",
 		acceptRemote: matchBinding(keyEvent({ code: "ArrowRight", metaKey: true, altKey: true })) === "acceptRemote",
 		acceptBoth: matchBinding(keyEvent({ code: "ArrowDown", metaKey: true, altKey: true })) === "acceptBoth",
+		undo: matchBinding(keyEvent({ code: "KeyZ", metaKey: true })) === "undo",
+		redo: matchBinding(keyEvent({ code: "KeyZ", metaKey: true, shiftKey: true })) === "redo",
 		save: matchBinding(keyEvent({ code: "KeyS", metaKey: true })) === "save",
 		abort: matchBinding(keyEvent({ code: "KeyW", metaKey: true })) === "abort",
 		toggleWordDiff: matchBinding(keyEvent({ code: "KeyH", metaKey: true, altKey: true })) === "toggleWordDiff",
@@ -59,6 +61,8 @@ test("installKeymap dispatches the matched action and prevents default", () => {
 		toggleWordDiff: vi.fn(),
 		toggleTheme: vi.fn(),
 		showHelp: vi.fn(),
+		undo: vi.fn(),
+		redo: vi.fn(),
 	};
 	const listeners: ((event: Event) => void)[] = [];
 	const fakeTarget = {

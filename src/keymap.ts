@@ -31,6 +31,10 @@ export interface KeymapActions {
 	abort(): void;
 	/** ⌥⌘H — toggle word-level diff highlighting. */
 	toggleWordDiff(): void;
+	/** ⌘Z — undo the last result-pane edit/hunk resolution. */
+	undo(): void;
+	/** ⇧⌘Z — redo the last undone result-pane edit/hunk resolution. */
+	redo(): void;
 	/** ⌥⌘T — toggle theme (stub; see `toggleTheme` binding note below). */
 	toggleTheme(): void;
 	/** ? — open the keyboard-shortcut help overlay. */
@@ -58,6 +62,8 @@ export const KEYMAP_BINDINGS: readonly KeymapBinding[] = [
 	{ combo: "⌥⌘←", description: "Accept local", action: "acceptLocal" },
 	{ combo: "⌥⌘→", description: "Accept remote", action: "acceptRemote" },
 	{ combo: "⌥⌘↓", description: "Accept both (local, then remote)", action: "acceptBoth" },
+	{ combo: "⌘Z", description: "Undo", action: "undo" },
+	{ combo: "⇧⌘Z", description: "Redo", action: "redo" },
 	{ combo: "⌘S", description: "Save & finish", action: "save" },
 	{ combo: "⌘W", description: "Abort merge", action: "abort" },
 	{ combo: "⌥⌘H", description: "Toggle word-diff highlighting", action: "toggleWordDiff" },
@@ -92,6 +98,10 @@ export function matchBinding(event: KeyboardEvent): KeymapActionName | null {
 			default:
 				return null;
 		}
+	}
+
+	if (mod && !event.altKey && event.code === "KeyZ") {
+		return event.shiftKey ? "redo" : "undo";
 	}
 
 	if (mod && !event.altKey && !event.shiftKey) {
