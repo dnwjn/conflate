@@ -402,6 +402,14 @@ export function createThreeWayView(
 			divider.addEventListener("pointermove", onMove);
 			divider.addEventListener("pointerup", onUp);
 		});
+		divider.addEventListener("dblclick", () => {
+			const pane = (resizes === "local" ? localPane : remotePane).root;
+			pane.style.flexBasis = "";
+			options.onPaneWidthsChange?.({
+				local: localPane.root.getBoundingClientRect().width,
+				remote: remotePane.root.getBoundingClientRect().width,
+			});
+		});
 		return divider;
 	};
 	const localPane = makePane("local", "LOCAL", options.localLabel ?? "HEAD");
