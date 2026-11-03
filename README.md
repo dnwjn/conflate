@@ -96,10 +96,12 @@ made public.
 
 ### One-time maintainer setup (not automated)
 
-Generate a signing keypair: `cargo tauri signer generate`. Put the printed
-public key in `src-tauri/tauri.conf.json`'s `plugins.updater.pubkey`
-(replacing the placeholder), and add the private key (and its password, if
-set) as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
+Generate a signing keypair with the project's own `@tauri-apps/cli`:
+`npx tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
+somewhere outside the repo). Put the printed public key in
+`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing the
+placeholder), and add the private key's contents (and its password, if set)
+as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Never commit the private key.
 
 ### Exercising the update UI in development
