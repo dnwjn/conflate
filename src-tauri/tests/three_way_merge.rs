@@ -429,4 +429,15 @@ fn dev_fixture_sample_covers_every_hunk_kind() {
         "missing a zero-width (delete-vs-modify) conflict: {:#?}",
         result.hunks
     );
+    // The frontend's "Auto-merge" button only resolves a `Conflict` hunk
+    // where both sides agree modulo whitespace (`TAGLINE`, re-indented
+    // differently by each side) — keep one in the fixture so `npm run
+    // dev:stub` can actually exercise that button.
+    assert!(
+        result.hunks.iter().any(|h| h.kind == HunkKind::Conflict
+            && h.local_text.trim() == h.remote_text.trim()
+            && h.local_text != h.remote_text),
+        "missing a whitespace-only (trim-equal) conflict for the Auto-merge button: {:#?}",
+        result.hunks
+    );
 }

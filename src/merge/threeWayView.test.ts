@@ -152,6 +152,59 @@ test("pullBoth inserts local's lines followed by remote's and marks the hunk res
 	expect(view.resultView.state.sliceDoc(range.from, range.to)).toBe("local two\nremote two");
 });
 
+test("autoMergeTrivial resolves only whitespace-only conflicts, leaves genuine ones and never runs on its own", () => {
+	const trivialInput: MergeInputPayload = {
+		base: "one\ntwo\nthree\n",
+		local: "one\ntwo \nthree\n",
+		remote: "one\n two\nfour\n",
+		languageHint: null,
+		fileName: "trivial.txt",
+	};
+	const trivialMergeResult: ThreeWayMergeResult = {
+		auto_merged_text: "one\ntwo \nthree\n",
+		conflict_count: 2,
+		hunks: [
+			makeHunk({ start_line: 0, end_line: 1, kind: "Unchanged", local_text: "one\n", remote_text: "one\n" }),
+			makeHunk({
+				start_line: 1,
+				end_line: 2,
+				kind: "Conflict",
+				base_text: "two\n",
+				local_text: "two \n",
+				remote_text: " two\n",
+				merged_text: "two \n",
+			}),
+			makeHunk({
+				start_line: 2,
+				end_line: 3,
+				kind: "Conflict",
+				base_text: "three\n",
+				local_text: "three\n",
+				remote_text: "four\n",
+				merged_text: "three\n",
+			}),
+		],
+	};
+	const container = document.createElement("div");
+	document.body.appendChild(container);
+	const view = createThreeWayView(container, trivialInput, trivialMergeResult);
+	created.push(view);
+
+	// Never runs on its own: both conflicts are still unresolved right after mount.
+	expect(view.conflictModel.isResolved(1)).toBe(false);
+	expect(view.conflictModel.isResolved(2)).toBe(false);
+
+	expect(view.autoMergeTrivial()).toBe(1);
+	expect(view.conflictModel.isResolved(1)).toBe(true);
+	expect(view.conflictModel.isResolved(2)).toBe(false);
+	// Resolves to local's exact bytes (not a normalized/trimmed version).
+	const range = view.conflictModel.rangeFor(1);
+	expect(view.resultView.state.sliceDoc(range.from, range.to)).toBe("two ");
+
+	// A second call is a no-op: nothing left that's both unresolved and trivial.
+	expect(view.autoMergeTrivial()).toBe(0);
+});
+
 test("a burst of result edits schedules at most one pending re-diff frame", () => {
 	const { view, scheduler, pending } = setup();
 	const baseline = view.recomputeCount;

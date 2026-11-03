@@ -54,7 +54,15 @@ export interface ThreeWayViewOptions {
 	/** Labels shown after the pane names, e.g. "HEAD". */
 	localLabel?: string;
 	remoteLabel?: string;
+	/** Persisted LOCAL/REMOTE pane widths (CSS px) to restore on mount. Falls back to the CSS default (400px) when omitted. */
+	paneWidths?: { local: number; remote: number };
+	/** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths (CSS px), so the caller can persist them. */
+	onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
 }
+
+/** Keeps a side pane usable and the result pane from being squeezed away by a drag. */
+const MIN_SIDE_PANE_WIDTH = 220;
+const MIN_RESULT_PANE_WIDTH = 240;
 
 export interface ThreeWayView {
 	localView: EditorView;
@@ -71,6 +79,17 @@ export interface ThreeWayView {
 	 * if nothing changed.
 	 */
 	pullBoth(hunkIndex: number): boolean;
+	/**
+	 * Resolves every unresolved `Conflict` hunk where local and remote agree
+	 * modulo whitespace (`local_text.trim() === remote_text.trim()`) — a
+	 * genuine disagreement (different value/logic) is left untouched for the
+	 * user to pick a side. Only runs when called (e.g. from a toolbar
+	 * button); never invoked automatically on load. Returns the number of
+	 * hunks resolved.
+	 */
+	autoMergeTrivial(): number;
+	/** Whether `autoMergeTrivial()` would resolve anything right now — for disabling its button when there's nothing to do. */
+	hasTrivialConflicts(): boolean;
 	/**
 	 * Index of the hunk the result cursor at offset `pos` is on (hunks tile
 	 * the document). A zero-width conflict at `pos` wins over the hunk that
@@ -181,13 +200,23 @@ class HunkControlsWidget extends WidgetType {
 		wrap.className = "cm-hunk-controls";
 		wrap.setAttribute("aria-hidden", "false");
 		if (this.canPullLocal) wrap.appendChild(this.button("local", "←", "Accept local for this hunk"));
-		if (this.pill) {
-			const pill = document.createElement("span");
-			pill.className = `cm-hunk-pill cm-hunk-pill-${this.pill.replace(/\s+/g, "-")}`;
-			pill.textContent = this.pill;
-			wrap.appendChild(pill);
+		// Pill + remote arrow share ONE sticky-right-anchored group (rather
+		// than each being independently `position: sticky; right: Npx`) so
+		// they lay out side-by-side with a real CSS gap instead of two fixed
+		// offsets that assume a fixed pill width — "auto-merged" is wider
+		// than "resolved" and would otherwise crowd/overlap the arrow.
+		if (this.pill || this.canPullRemote) {
+			const group = document.createElement("span");
+			group.className = "cm-hunk-right-group";
+			if (this.pill) {
+				const pill = document.createElement("span");
+				pill.className = `cm-hunk-pill cm-hunk-pill-${this.pill.replace(/\s+/g, "-")}`;
+				pill.textContent = this.pill;
+				group.appendChild(pill);
+			}
+			if (this.canPullRemote) group.appendChild(this.button("remote", "→", "Accept remote for this hunk"));
+			wrap.appendChild(group);
 		}
-		if (this.canPullRemote) wrap.appendChild(this.button("remote", "→", "Accept remote for this hunk"));
 		return wrap;
 	}
 
@@ -337,11 +366,53 @@ export function createThreeWayView(
 		editor.className = "tw-editor";
 		pane.append(header, editor);
 		panes.appendChild(pane);
-		return { header, editor };
+		return { root: pane, header, editor };
+	};
+	const makeDivider = (resizes: "local" | "remote") => {
+		const divider = document.createElement("div");
+		divider.className = "tw-divider";
+		divider.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0) return;
+			event.preventDefault();
+			const pane = (resizes === "local" ? localPane : remotePane).root;
+			const startX = event.clientX;
+			const startWidth = pane.getBoundingClientRect().width;
+			const containerWidth = panes.getBoundingClientRect().width;
+			const otherSideWidth = (resizes === "local" ? remotePane : localPane).root.getBoundingClientRect().width;
+			const dividerWidths = localDivider.getBoundingClientRect().width + remoteDivider.getBoundingClientRect().width;
+			const maxWidth = Math.max(
+				MIN_SIDE_PANE_WIDTH,
+				containerWidth - otherSideWidth - dividerWidths - MIN_RESULT_PANE_WIDTH,
+			);
+			divider.setPointerCapture(event.pointerId);
+			const onMove = (moveEvent: PointerEvent) => {
+				const delta = moveEvent.clientX - startX;
+				const signedDelta = resizes === "local" ? delta : -delta;
+				const width = Math.min(maxWidth, Math.max(MIN_SIDE_PANE_WIDTH, startWidth + signedDelta));
+				pane.style.flexBasis = `${width}px`;
+			};
+			const onUp = () => {
+				divider.removeEventListener("pointermove", onMove);
+				divider.removeEventListener("pointerup", onUp);
+				options.onPaneWidthsChange?.({
+					local: localPane.root.getBoundingClientRect().width,
+					remote: remotePane.root.getBoundingClientRect().width,
+				});
+			};
+			divider.addEventListener("pointermove", onMove);
+			divider.addEventListener("pointerup", onUp);
+		});
+		return divider;
 	};
 	const localPane = makePane("local", "LOCAL", options.localLabel ?? "HEAD");
+	if (options.paneWidths) localPane.root.style.flexBasis = `${options.paneWidths.local}px`;
+	const localDivider = makeDivider("local");
+	panes.appendChild(localDivider);
 	const resultPane = makePane("result", "RESULT", "editable");
+	const remoteDivider = makeDivider("remote");
+	panes.appendChild(remoteDivider);
 	const remotePane = makePane("remote", "REMOTE", options.remoteLabel ?? "");
+	if (options.paneWidths) remotePane.root.style.flexBasis = `${options.paneWidths.remote}px`;
 	const unresolvedPill = document.createElement("span");
 	unresolvedPill.className = "tw-unresolved-pill";
 	resultPane.header.appendChild(unresolvedPill);
@@ -733,6 +804,31 @@ export function createThreeWayView(
 		return pullText(hunkIndex, hunk.local_text + hunk.remote_text, "input.pull.both");
 	}
 
+	function isTrivialConflict(hunkIndex: number): boolean {
+		const hunk = hunks[hunkIndex];
+		return (
+			hunk.kind === "Conflict" &&
+			!conflictModel.isResolved(hunkIndex) &&
+			hunk.local_text.trim() === hunk.remote_text.trim()
+		);
+	}
+
+	function autoMergeTrivial(): number {
+		let resolvedCount = 0;
+		for (let i = 0; i < hunks.length; i++) {
+			if (!isTrivialConflict(i)) continue;
+			if (pullHunk(i, "local")) resolvedCount++;
+		}
+		return resolvedCount;
+	}
+
+	function hasTrivialConflicts(): boolean {
+		for (let i = 0; i < hunks.length; i++) {
+			if (isTrivialConflict(i)) return true;
+		}
+		return false;
+	}
+
 	function focusHunk(hunkIndex: number) {
 		if (hunkIndex < 0 || hunkIndex >= hunks.length) return;
 		const { from } = conflictModel.rangeFor(hunkIndex);
@@ -757,6 +853,8 @@ export function createThreeWayView(
 		hunks,
 		pullHunk,
 		pullBoth,
+		autoMergeTrivial,
+		hasTrivialConflicts,
 		hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
 		focusHunk,
 		setWordDiffEnabled(enabled: boolean) {

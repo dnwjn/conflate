@@ -95,6 +95,12 @@ test("Save with everything resolved saves without asking and without force", asy
 	await mountApp(root);
 	(root.querySelector(".cm-pull-remote") as HTMLElement).click();
 	expect(root.querySelector("#app-message")?.textContent).toBe("All conflicts resolved");
+	// Nothing left to jump between or auto-merge once everything is resolved.
+	expect(root.querySelector(".conflict-counter")?.textContent).toBe("All resolved");
+	expect(root.querySelector<HTMLButtonElement>("#abort-button")!.disabled).toBe(false); // sanity: not globally disabled
+	expect(root.querySelector<HTMLButtonElement>('[title^="Previous conflict"]')!.disabled).toBe(true);
+	expect(root.querySelector<HTMLButtonElement>('[title^="Next conflict"]')!.disabled).toBe(true);
+	expect(root.querySelector<HTMLButtonElement>("#auto-merge-button")!.disabled).toBe(true);
 	root.querySelector<HTMLButtonElement>("#save-button")!.click();
 	await vi.waitFor(() => expect(calls.some((c) => c.cmd === "save_result")).toBe(true));
 	expect(root.querySelector(".modal-card")).toBeNull();
@@ -228,6 +234,51 @@ test("a failing native setTitle does not break loading the merge", async () => {
 	await mountApp(root, { setWindowTitle: () => Promise.reject("no permission") });
 	expect(root.querySelectorAll(".tw-pane")).toHaveLength(3);
 	warn.mockRestore();
+});
+
+test("outside a Tauri runtime, mountApp shows a preview banner and stub data instead of an error", async () => {
+	// `@tauri-apps/api/mocks` sets `window.__TAURI_INTERNALS__ = {}` as an
+	// import-time side effect (and `clearMocks` only deletes its properties,
+	// not the object itself), so simulate a real plain-browser tab by
+	// removing it outright rather than relying on `clearMocks`.
+	delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+	await mountApp(root);
+	expect(root.querySelector(".dev-banner")?.textContent).toContain("Preview mode");
+	expect(root.querySelectorAll(".tw-pane")).toHaveLength(3);
+	expect(root.querySelector(".error-state")).toBeNull();
+});
+
+test("Auto-merge button resolves whitespace-only conflicts on click, never automatically on load", async () => {
+	const whitespaceOnlyResult = {
+		auto_merged_text: "L \n",
+		conflict_count: 1,
+		hunks: [
+			makeHunk({
+				start_line: 0,
+				end_line: 1,
+				kind: "Conflict",
+				base_text: "a\n",
+				local_text: "L \n",
+				remote_text: " L\n",
+				merged_text: "L \n",
+			}),
+		],
+	};
+	mockBackend({ compute_three_way_merge_command: () => whitespaceOnlyResult });
+	await mountApp(root);
+
+	// Not run automatically on load: the conflict is still unresolved.
+	expect(root.querySelector("#app-message")?.textContent).toBe("1 conflict remaining");
+
+	root.querySelector<HTMLButtonElement>("#auto-merge-button")!.click();
+	expect(root.querySelector("#app-message")?.textContent).toBe("Auto-merged 1 conflict");
+});
+
+test("Auto-merge button is disabled up front when there's nothing whitespace-only to resolve", async () => {
+	mockBackend(); // default fixture: local "L" vs remote "R" is a genuine conflict, not whitespace-only
+	await mountApp(root);
+	expect(root.querySelector<HTMLButtonElement>("#auto-merge-button")!.disabled).toBe(true);
+	expect(root.querySelector<HTMLButtonElement>("#auto-merge-button")!.title).toBe("No whitespace-only conflicts to auto-merge");
 });
 
 test("windowTitleFor falls back to the bare app name", () => {

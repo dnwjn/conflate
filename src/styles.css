@@ -186,11 +186,18 @@ button {
 	font: inherit;
 	color: inherit;
 	cursor: pointer;
+	transition: transform 0.08s;
 }
 
 button:disabled {
 	cursor: default;
 	opacity: 0.5;
+}
+
+/* A click with no visual response reads as "did that even register?" —
+   every button gets a brief press-down regardless of its specific class. */
+button:not(:disabled):active {
+	transform: scale(0.94);
 }
 
 .btn {
@@ -226,6 +233,17 @@ button:disabled {
 button:focus-visible {
 	outline: 2px solid var(--brand);
 	outline-offset: 1px;
+}
+
+/* ---- Dev-mode banner (no Tauri runtime) ---------------------------------- */
+
+.dev-banner {
+	flex: 0 0 auto;
+	padding: 6px 12px;
+	font-size: 12px;
+	color: var(--conflict-ink);
+	background: var(--conflict-bg);
+	border-bottom: 1px solid var(--conflict-border);
 }
 
 /* ---- Toolbar ------------------------------------------------------------ */
@@ -307,6 +325,16 @@ button:focus-visible {
 .tw-panes {
 	display: flex;
 	height: 100%;
+	/* `.tw-panes` is itself a flex item of `.tw-root`/`.merge-host` (same
+	   element: `container.classList.add("tw-root")` in createThreeWayView is
+	   applied to the `.merge-host` node). `flex: 1` makes it grow to fill
+	   any extra width instead of sitting at its children's content size with
+	   blank space beside it; `min-width: 0` (overriding the default
+	   min-width: auto) lets it shrink below that content size too, instead
+	   of overflowing/clipping the window on the way down — each pane can
+	   itself shrink to its own min-width regardless. */
+	flex: 1;
+	min-width: 0;
 }
 
 .tw-pane {
@@ -318,6 +346,18 @@ button:focus-visible {
 
 .tw-pane:last-child {
 	border-right: none;
+}
+
+.tw-divider {
+	flex: 0 0 5px;
+	cursor: col-resize;
+	background: transparent;
+	position: relative;
+}
+
+.tw-divider:hover,
+.tw-divider:active {
+	background: var(--brand);
 }
 
 .tw-pane-local,
@@ -569,13 +609,19 @@ button:focus-visible {
  * same mechanism that lets a table's sticky last column stay pinned to the
  * view. A plain inline child would statically sit at the *start* of this
  * (huge) box regardless of a `right` offset, so `.cm-hunk-controls` is a
- * flex row and the pill + remote arrow get `margin-left: auto`, which pushes
- * their static position to the box's far right edge — the same side as
- * their sticky anchor — before the sticky clamp ever has to act. The local
- * arrow needs no such push: its static (flex-start) position is already on
- * the same side as its `left` anchor. Vertical placement is left to normal
- * flex/inline flow (no `top`/`bottom` offset) so the controls stay pinned to
- * their own line instead of sticking vertically as the pane scrolls. */
+ * flex row and the right-side group (pill + remote arrow) gets
+ * `margin-left: auto`, which pushes its static position to the box's far
+ * right edge — the same side as its sticky anchor — before the sticky clamp
+ * ever has to act. The local arrow needs no such push: its static
+ * (flex-start) position is already on the same side as its `left` anchor.
+ * The pill and remote arrow are laid out as ONE sticky-anchored flex group
+ * (`.cm-hunk-right-group`) with a real `gap`, rather than each being
+ * independently `position: sticky; right: Npx` — two independent fixed
+ * offsets assume a fixed pill width and crowd/overlap once the pill's text
+ * is longer ("auto-merged" vs. "resolved"). Vertical placement is left to
+ * normal flex/inline flow (no `top`/`bottom` offset) so the controls stay
+ * pinned to their own line instead of sticking vertically as the pane
+ * scrolls. */
 
 .cm-hunk-controls {
 	position: absolute;
@@ -586,10 +632,19 @@ button:focus-visible {
 	font-family: var(--ui-font);
 }
 
-.cm-pull-arrow {
+.cm-hunk-right-group {
 	position: sticky;
+	right: 4px;
 	flex: none;
 	margin-top: 2px;
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.cm-pull-arrow {
+	flex: none;
 	width: 16px;
 	height: 16px;
 	padding: 0;
@@ -609,22 +664,18 @@ button:focus-visible {
 }
 
 .cm-pull-local {
+	position: sticky;
 	left: 4px;
+	margin-top: 2px;
 	background: var(--local);
 }
 
 .cm-pull-remote {
-	right: 4px;
-	margin-left: auto;
 	background: var(--remote);
 }
 
 .cm-hunk-pill {
-	position: sticky;
 	flex: none;
-	margin-top: 3px;
-	margin-left: auto;
-	right: 26px;
 	padding: 0 6px;
 	border-radius: 999px;
 	font-size: 10px;

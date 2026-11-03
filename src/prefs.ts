@@ -15,14 +15,21 @@ export interface WindowSize {
 	height: number;
 }
 
+/** User-dragged widths (in CSS pixels) of the LOCAL/REMOTE panes in the 3-way merge view. */
+export interface PaneWidths {
+	local: number;
+	remote: number;
+}
+
 export interface Prefs {
 	theme: ThemeOverride;
 	windowSize: WindowSize | null;
+	paneWidths: PaneWidths | null;
 }
 
 export const PREFS_FILE = "prefs.json";
 
-export const DEFAULT_PREFS: Prefs = { theme: "system", windowSize: null };
+export const DEFAULT_PREFS: Prefs = { theme: "system", windowSize: null, paneWidths: null };
 
 function isThemeOverride(value: unknown): value is ThemeOverride {
 	return value === "light" || value === "dark" || value === "system";
@@ -39,6 +46,17 @@ function isWindowSize(value: unknown): value is WindowSize {
 	);
 }
 
+function isPaneWidths(value: unknown): value is PaneWidths {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as PaneWidths).local === "number" &&
+		typeof (value as PaneWidths).remote === "number" &&
+		Number.isFinite((value as PaneWidths).local) &&
+		Number.isFinite((value as PaneWidths).remote)
+	);
+}
+
 /**
  * Sanitizes whatever `prefs.json` actually contained against corruption, an
  * old format, or a key simply missing, falling back to defaults field by
@@ -46,10 +64,11 @@ function isWindowSize(value: unknown): value is WindowSize {
  * Exported separately from `loadPrefs` so this logic is unit-testable
  * without a Tauri runtime.
  */
-export function sanitizePrefs(raw: { theme?: unknown; windowSize?: unknown }): Prefs {
+export function sanitizePrefs(raw: { theme?: unknown; windowSize?: unknown; paneWidths?: unknown }): Prefs {
 	return {
 		theme: isThemeOverride(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
 		windowSize: isWindowSize(raw.windowSize) ? raw.windowSize : DEFAULT_PREFS.windowSize,
+		paneWidths: isPaneWidths(raw.paneWidths) ? raw.paneWidths : DEFAULT_PREFS.paneWidths,
 	};
 }
 
@@ -63,7 +82,8 @@ export async function loadPrefs(): Promise<{ prefs: Prefs; store: Store }> {
 	const store = await load(PREFS_FILE, { defaults: { ...DEFAULT_PREFS } });
 	const theme = await store.get<ThemeOverride>("theme");
 	const windowSize = await store.get<WindowSize>("windowSize");
-	return { store, prefs: sanitizePrefs({ theme, windowSize }) };
+	const paneWidths = await store.get<PaneWidths>("paneWidths");
+	return { store, prefs: sanitizePrefs({ theme, windowSize, paneWidths }) };
 }
 
 export async function savePrefTheme(store: Store, theme: ThemeOverride): Promise<void> {
@@ -83,4 +103,8 @@ export function toLogicalWindowSize(physical: WindowSize, scaleFactor: number): 
 
 export async function savePrefWindowSize(store: Store, size: WindowSize): Promise<void> {
 	await store.set("windowSize", size);
+}
+
+export async function savePrefPaneWidths(store: Store, widths: PaneWidths): Promise<void> {
+	await store.set("paneWidths", widths);
 }

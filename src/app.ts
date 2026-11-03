@@ -1,4 +1,5 @@
 import type { MergeInputPayload, ThreeWayMergeResult } from "./bindings";
+import { devStubMergeInput, devStubMergeResult, isTauriRuntime } from "./devStub";
 import { abortMerge, computeThreeWayMerge, computeWordDiff, getMergeInput, saveResult } from "./ipc";
 import { installKeymap, KEYMAP_BINDINGS } from "./keymap";
 import { nextConflict, prevConflict } from "./merge/hunkNav";
@@ -21,6 +22,10 @@ export interface MountAppOptions {
 	 * a Tauri window; `document.title` is always set regardless.
 	 */
 	setWindowTitle?: (title: string) => void | Promise<void>;
+	/** Persisted LOCAL/REMOTE pane widths to restore on mount. */
+	initialPaneWidths?: { local: number; remote: number };
+	/** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths, so the caller can persist them. */
+	onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
 }
 
 /**
@@ -49,6 +54,8 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	const prevButton = button("‹", "toolbar-button", "Previous conflict (⌥⌘,)");
 	const nextButton = button("›", "toolbar-button", "Next conflict (⌥⌘.)");
 	const counter = el("span", "conflict-counter", "");
+	const autoMergeButton = button("Auto-merge", "toolbar-button", "Resolve conflicts where both sides agree modulo whitespace");
+	autoMergeButton.id = "auto-merge-button";
 	const wordDiffToggle = button("Word diff", "toolbar-toggle is-on", "Toggle word-level highlighting (⌥⌘H)");
 	wordDiffToggle.setAttribute("aria-pressed", "true");
 	const themeButton = button("◐", "toolbar-button", "Toggle theme (⌥⌘T)");
@@ -59,6 +66,7 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		prevButton,
 		nextButton,
 		counter,
+		autoMergeButton,
 		el("span", "toolbar-spacer"),
 		wordDiffToggle,
 		themeButton,
@@ -85,6 +93,11 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	}
 	themeButton.addEventListener("click", cycleTheme);
 
+	const devBanner = el(
+		"div",
+		"dev-banner",
+		"Preview mode (no Tauri runtime) — showing stub data. Use `npm run tauri dev` or `npm run dev:stub` for a real merge.",
+	);
 	const body = el("main", "merge-host");
 	const statusBar = el("footer", "statusbar");
 	const statusText = el("span", "status-text", "Loading merge input…");
@@ -94,7 +107,9 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	const saveButton = button("Save & Finish", "btn btn-primary");
 	saveButton.id = "save-button";
 	statusBar.append(statusText, el("span", "toolbar-spacer"), abortButton, saveButton);
-	root.append(toolbar, body, statusBar);
+	root.append(toolbar);
+	if (!isTauriRuntime()) root.append(devBanner);
+	root.append(body, statusBar);
 
 	setNavEnabled(false);
 	saveButton.disabled = true;
@@ -106,13 +121,31 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	saveButton.addEventListener("click", () => void onSave());
 
 	// --- Load ---------------------------------------------------------------
+	// Outside a real Tauri webview (e.g. `npm run dev` opened as a plain
+	// browser tab) there's no backend to call and nothing to merge, so skip
+	// straight to a stub merge for UI preview instead of surfacing the raw
+	// "nothing to call invoke() on" failure.
+	const devMode = !isTauriRuntime();
 	let input: MergeInputPayload;
 	let mergeResult: ThreeWayMergeResult;
-	try {
-		input = await getMergeInput();
-	} catch (err) {
-		showError(`Failed to load merge input: ${String(err)}`);
-		return;
+	if (devMode) {
+		input = devStubMergeInput();
+		mergeResult = devStubMergeResult(input);
+	} else {
+		try {
+			input = await getMergeInput();
+		} catch (err) {
+			showError(`Failed to load merge input: ${String(err)}`);
+			return;
+		}
+		try {
+			mergeResult = await computeThreeWayMerge(input.base ?? null, input.local, input.remote);
+		} catch (err) {
+			// Internal-invariant violation in the Rust merge. Never shown a
+			// partial/wrong merge; the user can only abort.
+			showError(`Merge computation failed (internal error): ${String(err)}`);
+			return;
+		}
 	}
 	const title = windowTitleFor(input.fileName);
 	document.title = title;
@@ -123,23 +156,16 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		console.warn("could not set the window title", err);
 	}
 	try {
-		mergeResult = await computeThreeWayMerge(input.base ?? null, input.local, input.remote);
-	} catch (err) {
-		// Internal-invariant violation in the Rust merge. Never shown a
-		// partial/wrong merge; the user can only abort.
-		showError(`Merge computation failed (internal error): ${String(err)}`);
-		return;
-	}
-	try {
 		view = createThreeWayView(body, input, mergeResult, {
-			computeWordDiff,
+			computeWordDiff: devMode ? undefined : computeWordDiff,
 			onUpdate: refreshStatus,
+			paneWidths: options.initialPaneWidths,
+			onPaneWidthsChange: options.onPaneWidthsChange,
 		});
 	} catch (err) {
 		showError(`Could not display the merge: ${String(err)}`);
 		return;
 	}
-
 	saveButton.disabled = false;
 	setNavEnabled(true);
 	refreshStatus();
@@ -148,6 +174,7 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 
 	prevButton.addEventListener("click", () => navigate(-1));
 	nextButton.addEventListener("click", () => navigate(1));
+	autoMergeButton.addEventListener("click", () => onAutoMerge());
 	wordDiffToggle.addEventListener("click", () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")));
 	shortcutsButton.addEventListener("click", () => showShortcutsHelp(root));
 	// Not torn down: the app occupies its window for the whole merge-tool
@@ -192,6 +219,26 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		if (index >= 0) view.pullHunk(index, side);
 	}
 
+	/**
+	 * Resolves every unresolved conflict where both sides agree modulo
+	 * whitespace, leaving genuine disagreements untouched. Only runs on an
+	 * explicit click — never automatically on load.
+	 */
+	function onAutoMerge() {
+		if (!view) return;
+		const resolvedCount = view.autoMergeTrivial();
+		refreshStatus();
+		// Always say something: a silent no-op (the common case — most repos
+		// have few or no whitespace-only conflicts) reads as "the button is
+		// broken" otherwise.
+		setStatus(
+			resolvedCount > 0
+				? `Auto-merged ${resolvedCount} conflict${resolvedCount === 1 ? "" : "s"}`
+				: "No whitespace-only conflicts to auto-merge",
+			resolvedCount > 0 ? "ok" : "pending",
+		);
+	}
+
 	/** Accept both sides for the conflict the result cursor is currently inside. */
 	function acceptBoth() {
 		if (!view) return;
@@ -207,7 +254,23 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 		counter.textContent =
 			conflicts.length === 0
 				? "No conflicts"
-				: `Conflict ${position >= 0 ? position + 1 : "–"} of ${conflicts.length}`;
+				: unresolved === 0
+					? "All resolved"
+					: `Conflict ${position >= 0 ? position + 1 : "–"} of ${conflicts.length}`;
+		// Nothing left to jump between or auto-merge once every conflict is
+		// resolved — leaving them enabled with nothing to do (prev/next find
+		// no unresolved hunk to land on) reads as broken, not done.
+		prevButton.disabled = unresolved === 0;
+		nextButton.disabled = unresolved === 0;
+		const canAutoMerge = unresolved > 0 && view.hasTrivialConflicts();
+		autoMergeButton.disabled = !canAutoMerge;
+		const autoMergeTitle = canAutoMerge
+			? "Resolve conflicts where both sides agree modulo whitespace"
+			: unresolved === 0
+				? "All conflicts resolved"
+				: "No whitespace-only conflicts to auto-merge";
+		autoMergeButton.title = autoMergeTitle;
+		autoMergeButton.setAttribute("aria-label", autoMergeTitle);
 		setStatus(
 			unresolved === 0
 				? conflicts.length === 0
@@ -220,6 +283,10 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 
 	async function onSave() {
 		if (!view || busy) return;
+		if (devMode) {
+			setStatus("Save is not available in preview mode (no Tauri runtime).", "error");
+			return;
+		}
 		const unresolved = view.conflictModel.unresolvedCount();
 		let force = false;
 		if (unresolved > 0) {
@@ -249,6 +316,10 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 
 	async function onAbort() {
 		if (busy) return;
+		if (devMode) {
+			setStatus("Abort is not available in preview mode (no Tauri runtime).", "error");
+			return;
+		}
 		const ok = await confirmDialog(root, {
 			title: "Abort this merge?",
 			body: "Nothing will be written. Git will treat the file as still conflicted.",
@@ -286,6 +357,7 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
 	function setNavEnabled(enabled: boolean) {
 		prevButton.disabled = !enabled;
 		nextButton.disabled = !enabled;
+		autoMergeButton.disabled = !enabled;
 		wordDiffToggle.disabled = !enabled;
 	}
 

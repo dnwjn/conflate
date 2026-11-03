@@ -1,7 +1,15 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { beforeEach, expect, test } from "vitest";
 import { LogicalSize, PhysicalSize } from "@tauri-apps/api/dpi";
-import { DEFAULT_PREFS, loadPrefs, sanitizePrefs, savePrefTheme, savePrefWindowSize, toLogicalWindowSize } from "./prefs";
+import {
+	DEFAULT_PREFS,
+	loadPrefs,
+	sanitizePrefs,
+	savePrefPaneWidths,
+	savePrefTheme,
+	savePrefWindowSize,
+	toLogicalWindowSize,
+} from "./prefs";
 
 beforeEach(() => {
 	clearMocks();
@@ -12,21 +20,35 @@ test("sanitizePrefs falls back to defaults field-by-field for missing/invalid da
 	expect(sanitizePrefs({ theme: "neon", windowSize: { width: 800, height: 600 } })).toEqual({
 		theme: "system",
 		windowSize: { width: 800, height: 600 },
+		paneWidths: null,
 	});
 	expect(sanitizePrefs({ theme: "dark", windowSize: "not-a-size" })).toEqual({
 		theme: "dark",
 		windowSize: null,
+		paneWidths: null,
 	});
 	expect(sanitizePrefs({ theme: "dark", windowSize: { width: 800 } })).toEqual({
 		theme: "dark",
 		windowSize: null,
+		paneWidths: null,
 	});
+	expect(sanitizePrefs({ paneWidths: { local: 400, remote: 400 } })).toEqual({
+		theme: "system",
+		windowSize: null,
+		paneWidths: { local: 400, remote: 400 },
+	});
+	expect(sanitizePrefs({ paneWidths: "not-widths" })).toEqual(DEFAULT_PREFS);
+	expect(sanitizePrefs({ paneWidths: { local: 400 } })).toEqual(DEFAULT_PREFS);
+	expect(sanitizePrefs({ paneWidths: { local: Number.NaN, remote: 400 } })).toEqual(DEFAULT_PREFS);
 });
 
 test("sanitizePrefs accepts a well-formed stored value unchanged", () => {
-	expect(sanitizePrefs({ theme: "light", windowSize: { width: 1024, height: 768 } })).toEqual({
+	expect(
+		sanitizePrefs({ theme: "light", windowSize: { width: 1024, height: 768 }, paneWidths: { local: 350, remote: 420 } }),
+	).toEqual({
 		theme: "light",
 		windowSize: { width: 1024, height: 768 },
+		paneWidths: { local: 350, remote: 420 },
 	});
 });
 
@@ -71,9 +93,14 @@ test("loadPrefs reads back a previously-set theme/windowSize through the mocked 
 
 	await savePrefTheme(store, "dark");
 	await savePrefWindowSize(store, { width: 900, height: 650 });
+	await savePrefPaneWidths(store, { local: 350, remote: 420 });
 
 	const reloaded = await loadPrefs();
-	expect(reloaded.prefs).toEqual({ theme: "dark", windowSize: { width: 900, height: 650 } });
+	expect(reloaded.prefs).toEqual({
+		theme: "dark",
+		windowSize: { width: 900, height: 650 },
+		paneWidths: { local: 350, remote: 420 },
+	});
 });
 
 test("loadPrefs rejects when there is no Tauri runtime to talk to (caller falls back to defaults)", async () => {

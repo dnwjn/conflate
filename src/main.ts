@@ -1,5 +1,13 @@
 import { mountApp } from "./app";
-import { DEFAULT_PREFS, loadPrefs, savePrefTheme, savePrefWindowSize, toLogicalWindowSize, type Prefs } from "./prefs";
+import {
+	DEFAULT_PREFS,
+	loadPrefs,
+	savePrefPaneWidths,
+	savePrefTheme,
+	savePrefWindowSize,
+	toLogicalWindowSize,
+	type Prefs,
+} from "./prefs";
 import { applyThemeOverride } from "./theme";
 
 /**
@@ -85,6 +93,10 @@ window.addEventListener("DOMContentLoaded", () => {
 			setWindowTitle: async (title) => {
 				const { getCurrentWindow } = await import("@tauri-apps/api/window");
 				await getCurrentWindow().setTitle(title);
+			},
+			initialPaneWidths: prefs.paneWidths ?? undefined,
+			onPaneWidthsChange: (widths) => {
+				if (store) void savePrefPaneWidths(store, widths);
 			},
 		});
 	})();
