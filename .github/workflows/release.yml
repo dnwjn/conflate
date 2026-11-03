@@ -1,12 +1,27 @@
 name: Release
 
-# Builds macOS .app/.dmg bundles and attaches them to a GitHub Release
-# whenever a `v*` tag is pushed (e.g. `v0.1.0`).
+# Builds macOS .app/.dmg bundles and attaches them to a GitHub Release.
+#
+# Primary trigger: run this workflow manually (Actions tab or `gh workflow
+# run release.yml -f bump=patch`) to bump the version, tag, build, and
+# publish in one go. Pushing a `v*` tag directly also works as a fallback
+# (skips the bump job, builds whatever is already at that tag).
 #
 # Builds are unsigned/unnotarized (see README's Gatekeeper note) — v1 scope
-# is macOS-only, so this workflow only runs a macos-latest job.
+# is macOS-only, so the build job only runs on macos-latest.
 
 on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
   push:
     tags:
       - "v*"
@@ -15,10 +30,62 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  bump-version:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version, commit, and tag
+        id: bump
+        run: |
+          set -euo pipefail
+
+          npm version "${{ inputs.bump }}" --no-git-tag-version
+          VERSION=$(node -p "require('./package.json').version")
+
+          node -e "
+            const fs = require('fs');
+            const path = 'src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
+            conf.version = '$VERSION';
+            fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
+          "
+
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+
+          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+          git commit -m "chore: release v$VERSION"
+          git tag "v$VERSION"
+
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tag
+        run: git push --follow-tags
+
+  build:
+    needs: bump-version
+    if: always() && (needs.bump-version.result == 'success' || needs.bump-version.result == 'skipped')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump-version.outputs.tag || github.ref_name }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -42,10 +109,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Conflate ${{ github.ref_name }}"
-          releaseBody: |
-            See the README for install instructions and the Gatekeeper
-            workaround required for this unsigned build.
+          tagName: ${{ needs.bump-version.outputs.tag || github.ref_name }}
+          releaseName: "Conflate ${{ needs.bump-version.outputs.tag || github.ref_name }}"
           releaseDraft: true
           prerelease: false
+
+  publish-release:
+    needs: [bump-version, build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate notes and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.bump-version.outputs.tag || github.ref_name }}"
+          notes=$(gh api "repos/${{ github.repository }}/releases/generate-notes" -f tag_name="$tag" --jq .body)
+          gh release edit "$tag" --draft=false --title "$tag" --notes "$notes"
