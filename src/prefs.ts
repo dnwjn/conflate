@@ -6,55 +6,59 @@
  * startup (`main.ts`) before the UI renders.
  */
 
-import { load, type Store } from "@tauri-apps/plugin-store";
-import type { ThemeOverride } from "./theme";
+import { load, type Store } from '@tauri-apps/plugin-store';
+import type { ThemeOverride } from './theme';
 
 /** Window inner size in LOGICAL pixels (what `LogicalSize`/`setSize` restore). */
 export interface WindowSize {
-	width: number;
-	height: number;
+    width: number;
+    height: number;
 }
 
 /** User-dragged widths (in CSS pixels) of the LOCAL/REMOTE panes in the 3-way merge view. */
 export interface PaneWidths {
-	local: number;
-	remote: number;
+    local: number;
+    remote: number;
 }
 
 export interface Prefs {
-	theme: ThemeOverride;
-	windowSize: WindowSize | null;
-	paneWidths: PaneWidths | null;
+    theme: ThemeOverride;
+    windowSize: WindowSize | null;
+    paneWidths: PaneWidths | null;
 }
 
-export const PREFS_FILE = "prefs.json";
+export const PREFS_FILE = 'prefs.json';
 
-export const DEFAULT_PREFS: Prefs = { theme: "system", windowSize: null, paneWidths: null };
+export const DEFAULT_PREFS: Prefs = {
+    theme: 'system',
+    windowSize: null,
+    paneWidths: null,
+};
 
 function isThemeOverride(value: unknown): value is ThemeOverride {
-	return value === "light" || value === "dark" || value === "system";
+    return value === 'light' || value === 'dark' || value === 'system';
 }
 
 function isWindowSize(value: unknown): value is WindowSize {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as WindowSize).width === "number" &&
-		typeof (value as WindowSize).height === "number" &&
-		Number.isFinite((value as WindowSize).width) &&
-		Number.isFinite((value as WindowSize).height)
-	);
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        typeof (value as WindowSize).width === 'number' &&
+        typeof (value as WindowSize).height === 'number' &&
+        Number.isFinite((value as WindowSize).width) &&
+        Number.isFinite((value as WindowSize).height)
+    );
 }
 
 function isPaneWidths(value: unknown): value is PaneWidths {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as PaneWidths).local === "number" &&
-		typeof (value as PaneWidths).remote === "number" &&
-		Number.isFinite((value as PaneWidths).local) &&
-		Number.isFinite((value as PaneWidths).remote)
-	);
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        typeof (value as PaneWidths).local === 'number' &&
+        typeof (value as PaneWidths).remote === 'number' &&
+        Number.isFinite((value as PaneWidths).local) &&
+        Number.isFinite((value as PaneWidths).remote)
+    );
 }
 
 /**
@@ -64,12 +68,20 @@ function isPaneWidths(value: unknown): value is PaneWidths {
  * Exported separately from `loadPrefs` so this logic is unit-testable
  * without a Tauri runtime.
  */
-export function sanitizePrefs(raw: { theme?: unknown; windowSize?: unknown; paneWidths?: unknown }): Prefs {
-	return {
-		theme: isThemeOverride(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
-		windowSize: isWindowSize(raw.windowSize) ? raw.windowSize : DEFAULT_PREFS.windowSize,
-		paneWidths: isPaneWidths(raw.paneWidths) ? raw.paneWidths : DEFAULT_PREFS.paneWidths,
-	};
+export function sanitizePrefs(raw: {
+    theme?: unknown;
+    windowSize?: unknown;
+    paneWidths?: unknown;
+}): Prefs {
+    return {
+        theme: isThemeOverride(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
+        windowSize: isWindowSize(raw.windowSize)
+            ? raw.windowSize
+            : DEFAULT_PREFS.windowSize,
+        paneWidths: isPaneWidths(raw.paneWidths)
+            ? raw.paneWidths
+            : DEFAULT_PREFS.paneWidths,
+    };
 }
 
 /**
@@ -79,15 +91,18 @@ export function sanitizePrefs(raw: { theme?: unknown; windowSize?: unknown; pane
  * without re-opening the file.
  */
 export async function loadPrefs(): Promise<{ prefs: Prefs; store: Store }> {
-	const store = await load(PREFS_FILE, { defaults: { ...DEFAULT_PREFS } });
-	const theme = await store.get<ThemeOverride>("theme");
-	const windowSize = await store.get<WindowSize>("windowSize");
-	const paneWidths = await store.get<PaneWidths>("paneWidths");
-	return { store, prefs: sanitizePrefs({ theme, windowSize, paneWidths }) };
+    const store = await load(PREFS_FILE, { defaults: { ...DEFAULT_PREFS } });
+    const theme = await store.get<ThemeOverride>('theme');
+    const windowSize = await store.get<WindowSize>('windowSize');
+    const paneWidths = await store.get<PaneWidths>('paneWidths');
+    return { store, prefs: sanitizePrefs({ theme, windowSize, paneWidths }) };
 }
 
-export async function savePrefTheme(store: Store, theme: ThemeOverride): Promise<void> {
-	await store.set("theme", theme);
+export async function savePrefTheme(
+    store: Store,
+    theme: ThemeOverride,
+): Promise<void> {
+    await store.set('theme', theme);
 }
 
 /**
@@ -96,15 +111,28 @@ export async function savePrefTheme(store: Store, theme: ThemeOverride): Promise
  * the physical size made the window grow by the scale factor (2x on Retina)
  * on every relaunch. A bogus scale factor is treated as 1.
  */
-export function toLogicalWindowSize(physical: WindowSize, scaleFactor: number): WindowSize {
-	const scale = Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
-	return { width: Math.round(physical.width / scale), height: Math.round(physical.height / scale) };
+export function toLogicalWindowSize(
+    physical: WindowSize,
+    scaleFactor: number,
+): WindowSize {
+    const scale =
+        Number.isFinite(scaleFactor) && scaleFactor > 0 ? scaleFactor : 1;
+    return {
+        width: Math.round(physical.width / scale),
+        height: Math.round(physical.height / scale),
+    };
 }
 
-export async function savePrefWindowSize(store: Store, size: WindowSize): Promise<void> {
-	await store.set("windowSize", size);
+export async function savePrefWindowSize(
+    store: Store,
+    size: WindowSize,
+): Promise<void> {
+    await store.set('windowSize', size);
 }
 
-export async function savePrefPaneWidths(store: Store, widths: PaneWidths): Promise<void> {
-	await store.set("paneWidths", widths);
+export async function savePrefPaneWidths(
+    store: Store,
+    widths: PaneWidths,
+): Promise<void> {
+    await store.set('paneWidths', widths);
 }

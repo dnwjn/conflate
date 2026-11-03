@@ -1,10 +1,10 @@
-import type { WordDiffOp } from "../bindings";
+import type { WordDiffOp } from '../bindings';
 
 export interface WordDiffRanges {
-	/** Ranges of text only in the OLD string (from `Delete` ops), offset by `oldStart`. */
-	old: { from: number; to: number }[];
-	/** Ranges of text only in the NEW string (from `Insert` ops), offset by `newStart`. */
-	new: { from: number; to: number }[];
+    /** Ranges of text only in the OLD string (from `Delete` ops), offset by `oldStart`. */
+    old: { from: number; to: number }[];
+    /** Ranges of text only in the NEW string (from `Insert` ops), offset by `newStart`. */
+    new: { from: number; to: number }[];
 }
 
 /**
@@ -21,23 +21,29 @@ export interface WordDiffRanges {
  * is lost. Ops that mix words and whitespace (adjacent same-kind tokens are
  * coalesced by the backend, e.g. `"foo "`) are highlighted as-is.
  */
-export function wordDiffRanges(ops: readonly WordDiffOp[], oldStart: number, newStart: number): WordDiffRanges {
-	const ranges: WordDiffRanges = { old: [], new: [] };
-	let oldPos = oldStart;
-	let newPos = newStart;
-	for (const op of ops) {
-		const length = op.text.length;
-		const highlight = op.text.trim() !== "";
-		if (op.kind === "Equal") {
-			oldPos += length;
-			newPos += length;
-		} else if (op.kind === "Delete") {
-			if (highlight) ranges.old.push({ from: oldPos, to: oldPos + length });
-			oldPos += length;
-		} else {
-			if (highlight) ranges.new.push({ from: newPos, to: newPos + length });
-			newPos += length;
-		}
-	}
-	return ranges;
+export function wordDiffRanges(
+    ops: readonly WordDiffOp[],
+    oldStart: number,
+    newStart: number,
+): WordDiffRanges {
+    const ranges: WordDiffRanges = { old: [], new: [] };
+    let oldPos = oldStart;
+    let newPos = newStart;
+    for (const op of ops) {
+        const length = op.text.length;
+        const highlight = op.text.trim() !== '';
+        if (op.kind === 'Equal') {
+            oldPos += length;
+            newPos += length;
+        } else if (op.kind === 'Delete') {
+            if (highlight)
+                ranges.old.push({ from: oldPos, to: oldPos + length });
+            oldPos += length;
+        } else {
+            if (highlight)
+                ranges.new.push({ from: newPos, to: newPos + length });
+            newPos += length;
+        }
+    }
+    return ranges;
 }

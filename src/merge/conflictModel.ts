@@ -1,20 +1,20 @@
-import type { ChangeSet, Text } from "@codemirror/state";
-import type { Hunk, HunkKind } from "../bindings";
+import type { ChangeSet, Text } from '@codemirror/state';
+import type { Hunk, HunkKind } from '../bindings';
 
 /**
  * Hunk kinds the 3-way merge already resolved automatically. Everything else
  * (`Conflict`) needs the user's attention and starts unresolved.
  */
 const AUTO_MERGEABLE_KINDS: ReadonlySet<HunkKind> = new Set([
-	"Unchanged",
-	"LocalOnly",
-	"RemoteOnly",
-	"SameChange",
+    'Unchanged',
+    'LocalOnly',
+    'RemoteOnly',
+    'SameChange',
 ]);
 
 interface TrackedRange {
-	from: number;
-	to: number;
+    from: number;
+    to: number;
 }
 
 /**
@@ -31,14 +31,19 @@ interface TrackedRange {
  * `start_line` (0-based), i.e. the start of CM6 line `start_line + 1`, or
  * the end of the document if `start_line` is at or past the end.
  */
-function lineRangeToOffsets(doc: Text, startLine: number, endLine: number): TrackedRange {
-	if (startLine === endLine) {
-		const pos = startLine < doc.lines ? doc.line(startLine + 1).from : doc.length;
-		return { from: pos, to: pos };
-	}
-	const from = doc.line(startLine + 1).from;
-	const to = doc.line(endLine).to;
-	return { from, to };
+function lineRangeToOffsets(
+    doc: Text,
+    startLine: number,
+    endLine: number,
+): TrackedRange {
+    if (startLine === endLine) {
+        const pos =
+            startLine < doc.lines ? doc.line(startLine + 1).from : doc.length;
+        return { from: pos, to: pos };
+    }
+    const from = doc.line(startLine + 1).from;
+    const to = doc.line(endLine).to;
+    return { from, to };
 }
 
 /**
@@ -51,95 +56,98 @@ function lineRangeToOffsets(doc: Text, startLine: number, endLine: number): Trac
  * hunks need explicit user resolution.
  */
 export class ConflictModel {
-	private ranges: TrackedRange[];
-	private resolved: boolean[];
+    private ranges: TrackedRange[];
+    private resolved: boolean[];
 
-	constructor(hunks: Hunk[], doc: Text) {
-		this.ranges = hunks.map((hunk) => lineRangeToOffsets(doc, hunk.start_line, hunk.end_line));
-		this.resolved = hunks.map((hunk) => !isUnresolvedKind(hunk.kind));
-	}
+    constructor(hunks: Hunk[], doc: Text) {
+        this.ranges = hunks.map((hunk) =>
+            lineRangeToOffsets(doc, hunk.start_line, hunk.end_line),
+        );
+        this.resolved = hunks.map((hunk) => !isUnresolvedKind(hunk.kind));
+    }
 
-	rangeFor(hunkIndex: number): { from: number; to: number } {
-		const range = this.ranges[hunkIndex];
-		return { from: range.from, to: range.to };
-	}
+    rangeFor(hunkIndex: number): { from: number; to: number } {
+        const range = this.ranges[hunkIndex];
+        return { from: range.from, to: range.to };
+    }
 
-	/** Number of hunks tracked (every hunk, not just conflicts). */
-	hunkCount(): number {
-		return this.ranges.length;
-	}
+    /** Number of hunks tracked (every hunk, not just conflicts). */
+    hunkCount(): number {
+        return this.ranges.length;
+    }
 
-	/**
-	 * Overwrites a hunk's tracked range. Used by the 3-pane view after a
-	 * "pull hunk" transaction to put the range back into this class's
-	 * canonical form (`to` at the END of the last line, excluding its line
-	 * break; zero-width ranges at a line start), and by undo/redo to restore
-	 * a range snapshot that plain position mapping cannot reconstruct.
-	 */
-	setRange(hunkIndex: number, range: { from: number; to: number }): void {
-		this.ranges[hunkIndex] = { from: range.from, to: range.to };
-	}
+    /**
+     * Overwrites a hunk's tracked range. Used by the 3-pane view after a
+     * "pull hunk" transaction to put the range back into this class's
+     * canonical form (`to` at the END of the last line, excluding its line
+     * break; zero-width ranges at a line start), and by undo/redo to restore
+     * a range snapshot that plain position mapping cannot reconstruct.
+     */
+    setRange(hunkIndex: number, range: { from: number; to: number }): void {
+        this.ranges[hunkIndex] = { from: range.from, to: range.to };
+    }
 
-	markResolved(hunkIndex: number): void {
-		this.resolved[hunkIndex] = true;
-	}
+    markResolved(hunkIndex: number): void {
+        this.resolved[hunkIndex] = true;
+    }
 
-	/** Reverts `markResolved` (used when the user undoes a pull). */
-	markUnresolved(hunkIndex: number): void {
-		this.resolved[hunkIndex] = false;
-	}
+    /** Reverts `markResolved` (used when the user undoes a pull). */
+    markUnresolved(hunkIndex: number): void {
+        this.resolved[hunkIndex] = false;
+    }
 
-	isResolved(hunkIndex: number): boolean {
-		return this.resolved[hunkIndex];
-	}
+    isResolved(hunkIndex: number): boolean {
+        return this.resolved[hunkIndex];
+    }
 
-	/**
-	 * Re-maps every tracked range through a CM6 `ChangeSet` so ranges stay
-	 * correctly positioned after a live document edit.
-	 *
-	 * `to` is always mapped with assoc +1, so a hunk absorbs text typed
-	 * exactly at its own right edge (including filling in a zero-width,
-	 * pure-deletion hunk's point — the hunk's `from` and `to` are equal
-	 * there, so this is also what grows it).
-	 *
-	 * `from` is mapped with assoc -1 ("absorb text typed here") UNLESS this
-	 * range's `from` currently sits exactly where another tracked range's
-	 * `to` sits — i.e. this hunk is immediately preceded by another hunk
-	 * with no gap between them. In that case `from` is mapped with assoc
-	 * +1 instead, so it shifts forward with the inserted text rather than
-	 * absorbing it.
-	 *
-	 * Without this, an insertion typed exactly at a boundary shared by two
-	 * adjacent hunks would be absorbed by BOTH: the earlier hunk's `to`
-	 * (assoc +1) grows forward over it, and the later hunk's `from` (assoc
-	 * -1) would also stay anchored there and grow backward over the same
-	 * text, producing overlapping ranges. Giving the earlier hunk exclusive
-	 * claim to a shared boundary — "earlier hunk wins" — keeps the two
-	 * ranges disjoint (they may still touch at a single point, which is not
-	 * an overlap under the half-open-interval convention used throughout
-	 * this class). An isolated hunk's own boundary (nothing else ends
-	 * exactly where it starts) is unaffected and keeps absorbing text typed
-	 * at its own edge, including its own zero-width deletion point.
-	 */
-	applyEdit(changes: ChangeSet): void {
-		const previous = this.ranges;
-		this.ranges = previous.map((range, index) => {
-			const sharesBoundaryWithEarlierHunk = previous.some(
-				(other, otherIndex) => otherIndex !== index && other.to === range.from,
-			);
-			const fromAssoc = sharesBoundaryWithEarlierHunk ? 1 : -1;
-			return {
-				from: changes.mapPos(range.from, fromAssoc),
-				to: changes.mapPos(range.to, 1),
-			};
-		});
-	}
+    /**
+     * Re-maps every tracked range through a CM6 `ChangeSet` so ranges stay
+     * correctly positioned after a live document edit.
+     *
+     * `to` is always mapped with assoc +1, so a hunk absorbs text typed
+     * exactly at its own right edge (including filling in a zero-width,
+     * pure-deletion hunk's point — the hunk's `from` and `to` are equal
+     * there, so this is also what grows it).
+     *
+     * `from` is mapped with assoc -1 ("absorb text typed here") UNLESS this
+     * range's `from` currently sits exactly where another tracked range's
+     * `to` sits — i.e. this hunk is immediately preceded by another hunk
+     * with no gap between them. In that case `from` is mapped with assoc
+     * +1 instead, so it shifts forward with the inserted text rather than
+     * absorbing it.
+     *
+     * Without this, an insertion typed exactly at a boundary shared by two
+     * adjacent hunks would be absorbed by BOTH: the earlier hunk's `to`
+     * (assoc +1) grows forward over it, and the later hunk's `from` (assoc
+     * -1) would also stay anchored there and grow backward over the same
+     * text, producing overlapping ranges. Giving the earlier hunk exclusive
+     * claim to a shared boundary — "earlier hunk wins" — keeps the two
+     * ranges disjoint (they may still touch at a single point, which is not
+     * an overlap under the half-open-interval convention used throughout
+     * this class). An isolated hunk's own boundary (nothing else ends
+     * exactly where it starts) is unaffected and keeps absorbing text typed
+     * at its own edge, including its own zero-width deletion point.
+     */
+    applyEdit(changes: ChangeSet): void {
+        const previous = this.ranges;
+        this.ranges = previous.map((range, index) => {
+            const sharesBoundaryWithEarlierHunk = previous.some(
+                (other, otherIndex) =>
+                    otherIndex !== index && other.to === range.from,
+            );
+            const fromAssoc = sharesBoundaryWithEarlierHunk ? 1 : -1;
+            return {
+                from: changes.mapPos(range.from, fromAssoc),
+                to: changes.mapPos(range.to, 1),
+            };
+        });
+    }
 
-	unresolvedCount(): number {
-		return this.resolved.filter((isResolved) => !isResolved).length;
-	}
+    unresolvedCount(): number {
+        return this.resolved.filter((isResolved) => !isResolved).length;
+    }
 }
 
 function isUnresolvedKind(kind: HunkKind): boolean {
-	return !AUTO_MERGEABLE_KINDS.has(kind);
+    return !AUTO_MERGEABLE_KINDS.has(kind);
 }

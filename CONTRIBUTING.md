@@ -71,6 +71,9 @@ npm test
 
 # Frontend: type checking
 npm run typecheck
+
+# Frontend: lint + format check (Biome)
+npm run lint
 ```
 
 If you've touched `src-tauri/src/commands.rs` or any `#[specta]`-annotated

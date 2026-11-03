@@ -1,10 +1,26 @@
-import type { MergeInputPayload, ThreeWayMergeResult } from "./bindings";
-import { devStubMergeInput, devStubMergeResult, isTauriRuntime } from "./devStub";
-import { abortMerge, computeThreeWayMerge, computeWordDiff, getMergeInput, saveResult } from "./ipc";
-import { installKeymap, KEYMAP_BINDINGS } from "./keymap";
-import { nextConflict, prevConflict } from "./merge/hunkNav";
-import { createThreeWayView, type ThreeWayView } from "./merge/threeWayView";
-import { initTheme, themeIndicatorIcon, themeIndicatorLabel, type ThemeController, type ThemeOverride } from "./theme";
+import type { MergeInputPayload, ThreeWayMergeResult } from './bindings';
+import {
+    devStubMergeInput,
+    devStubMergeResult,
+    isTauriRuntime,
+} from './devStub';
+import {
+    abortMerge,
+    computeThreeWayMerge,
+    computeWordDiff,
+    getMergeInput,
+    saveResult,
+} from './ipc';
+import { installKeymap, KEYMAP_BINDINGS } from './keymap';
+import { nextConflict, prevConflict } from './merge/hunkNav';
+import { createThreeWayView, type ThreeWayView } from './merge/threeWayView';
+import {
+    initTheme,
+    type ThemeController,
+    type ThemeOverride,
+    themeIndicatorIcon,
+    themeIndicatorLabel,
+} from './theme';
 
 /**
  * Optional theming hook (Task 12). When omitted, the toolbar still renders
@@ -14,18 +30,18 @@ import { initTheme, themeIndicatorIcon, themeIndicatorLabel, type ThemeControlle
  * from `initTheme`'s Tauri/matchMedia side effects.
  */
 export interface MountAppOptions {
-	initialTheme?: ThemeOverride;
-	onThemeOverrideChange?: (override: ThemeOverride) => void;
-	/**
-	 * Sets the NATIVE window title (Tauri's `setTitle`, wired in `main.ts`).
-	 * Injected rather than called directly so `mountApp`'s tests don't need
-	 * a Tauri window; `document.title` is always set regardless.
-	 */
-	setWindowTitle?: (title: string) => void | Promise<void>;
-	/** Persisted LOCAL/REMOTE pane widths to restore on mount. */
-	initialPaneWidths?: { local: number; remote: number };
-	/** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths, so the caller can persist them. */
-	onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
+    initialTheme?: ThemeOverride;
+    onThemeOverrideChange?: (override: ThemeOverride) => void;
+    /**
+     * Sets the NATIVE window title (Tauri's `setTitle`, wired in `main.ts`).
+     * Injected rather than called directly so `mountApp`'s tests don't need
+     * a Tauri window; `document.title` is always set regardless.
+     */
+    setWindowTitle?: (title: string) => void | Promise<void>;
+    /** Persisted LOCAL/REMOTE pane widths to restore on mount. */
+    initialPaneWidths?: { local: number; remote: number };
+    /** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths, so the caller can persist them. */
+    onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
 }
 
 /**
@@ -38,7 +54,7 @@ const UNDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 
 const REDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>`;
 
 export function windowTitleFor(fileName: string): string {
-	return fileName ? `${fileName} — Conflate` : "Conflate";
+    return fileName ? `${fileName} — Conflate` : 'Conflate';
 }
 
 /**
@@ -48,341 +64,394 @@ export function windowTitleFor(fileName: string): string {
  * Abort button stays usable in the error state so the user can always exit
  * the mergetool cleanly.
  */
-export async function mountApp(root: HTMLElement, options: MountAppOptions = {}): Promise<void> {
-	root.innerHTML = "";
-	root.classList.add("app");
+export async function mountApp(
+    root: HTMLElement,
+    options: MountAppOptions = {},
+): Promise<void> {
+    root.innerHTML = '';
+    root.classList.add('app');
 
-	const toolbar = el("header", "toolbar");
-	const brand = el("div", "toolbar-brand");
-	brand.append(el("span", "brand-mark", "◆"), el("span", "brand-name", "Conflate"));
-	const prevButton = button("‹", "toolbar-button", "Previous conflict (⌥⌘,)");
-	const nextButton = button("›", "toolbar-button", "Next conflict (⌥⌘.)");
-	const counter = el("span", "conflict-counter", "");
-	const autoMergeButton = button("Auto-merge", "toolbar-button", "Resolve conflicts where both sides agree modulo whitespace");
-	autoMergeButton.id = "auto-merge-button";
-	const undoButton = iconButton(UNDO_ICON, "toolbar-button", "Undo (⌘Z)");
-	const redoButton = iconButton(REDO_ICON, "toolbar-button", "Redo (⇧⌘Z)");
-	undoButton.disabled = true;
-	redoButton.disabled = true;
-	const wordDiffToggle = button("Word diff", "toolbar-toggle is-on", "Toggle word-level highlighting (⌥⌘H)");
-	wordDiffToggle.setAttribute("aria-pressed", "true");
-	const themeButton = button("◐", "toolbar-button", "Toggle theme (⌥⌘T)");
-	const shortcutsButton = button("?", "toolbar-button", "Keyboard shortcuts (?)");
-	toolbar.append(
-		brand,
-		el("span", "toolbar-divider"),
-		prevButton,
-		nextButton,
-		counter,
-		autoMergeButton,
-		undoButton,
-		redoButton,
-		el("span", "toolbar-spacer"),
-		wordDiffToggle,
-		themeButton,
-		shortcutsButton,
-	);
+    const toolbar = el('header', 'toolbar');
+    const brand = el('div', 'toolbar-brand');
+    brand.append(
+        el('span', 'brand-mark', '◆'),
+        el('span', 'brand-name', 'Conflate'),
+    );
+    const prevButton = button('‹', 'toolbar-button', 'Previous conflict (⌥⌘,)');
+    const nextButton = button('›', 'toolbar-button', 'Next conflict (⌥⌘.)');
+    const counter = el('span', 'conflict-counter', '');
+    const autoMergeButton = button(
+        'Auto-merge',
+        'toolbar-button',
+        'Resolve conflicts where both sides agree modulo whitespace',
+    );
+    autoMergeButton.id = 'auto-merge-button';
+    const undoButton = iconButton(UNDO_ICON, 'toolbar-button', 'Undo (⌘Z)');
+    const redoButton = iconButton(REDO_ICON, 'toolbar-button', 'Redo (⇧⌘Z)');
+    undoButton.disabled = true;
+    redoButton.disabled = true;
+    const wordDiffToggle = button(
+        'Word diff',
+        'toolbar-toggle is-on',
+        'Toggle word-level highlighting (⌥⌘H)',
+    );
+    wordDiffToggle.setAttribute('aria-pressed', 'true');
+    const themeButton = button('◐', 'toolbar-button', 'Toggle theme (⌥⌘T)');
+    const shortcutsButton = button(
+        '?',
+        'toolbar-button',
+        'Keyboard shortcuts (?)',
+    );
+    toolbar.append(
+        brand,
+        el('span', 'toolbar-divider'),
+        prevButton,
+        nextButton,
+        counter,
+        autoMergeButton,
+        undoButton,
+        redoButton,
+        el('span', 'toolbar-spacer'),
+        wordDiffToggle,
+        themeButton,
+        shortcutsButton,
+    );
 
-	// --- Theming (Task 12) ----------------------------------------------------
-	// Applies immediately (before the merge input even loads) and keeps the
-	// toolbar indicator in sync with live OS changes while the override is
-	// "system". `cycleTheme` below is the single place both the keybinding and
-	// the toolbar button call into, so they can never diverge.
-	const theme: ThemeController = initTheme({
-		initialOverride: options.initialTheme ?? "system",
-		onOverrideChange: options.onThemeOverrideChange,
-		onEffectiveChange: (effective, override) => {
-			themeButton.textContent = themeIndicatorIcon(override, effective === "dark");
-			const label = `${themeIndicatorLabel(override, effective === "dark")} — ⌥⌘T to cycle`;
-			themeButton.title = label;
-			themeButton.setAttribute("aria-label", label);
-		},
-	});
-	function cycleTheme() {
-		theme.cycle();
-	}
-	themeButton.addEventListener("click", cycleTheme);
+    // --- Theming (Task 12) ----------------------------------------------------
+    // Applies immediately (before the merge input even loads) and keeps the
+    // toolbar indicator in sync with live OS changes while the override is
+    // "system". `cycleTheme` below is the single place both the keybinding and
+    // the toolbar button call into, so they can never diverge.
+    const theme: ThemeController = initTheme({
+        initialOverride: options.initialTheme ?? 'system',
+        onOverrideChange: options.onThemeOverrideChange,
+        onEffectiveChange: (effective, override) => {
+            themeButton.textContent = themeIndicatorIcon(
+                override,
+                effective === 'dark',
+            );
+            const label = `${themeIndicatorLabel(override, effective === 'dark')} — ⌥⌘T to cycle`;
+            themeButton.title = label;
+            themeButton.setAttribute('aria-label', label);
+        },
+    });
+    function cycleTheme() {
+        theme.cycle();
+    }
+    themeButton.addEventListener('click', cycleTheme);
 
-	const devBanner = el(
-		"div",
-		"dev-banner",
-		"Preview mode (no Tauri runtime) — showing stub data. Use `npm run tauri dev` or `npm run dev:stub` for a real merge.",
-	);
-	const body = el("main", "merge-host");
-	const statusBar = el("footer", "statusbar");
-	const statusText = el("span", "status-text", "Loading merge input…");
-	statusText.id = "app-message";
-	const abortButton = button("Abort", "btn btn-secondary");
-	abortButton.id = "abort-button";
-	const saveButton = button("Save & Finish", "btn btn-primary");
-	saveButton.id = "save-button";
-	statusBar.append(statusText, el("span", "toolbar-spacer"), abortButton, saveButton);
-	root.append(toolbar);
-	if (!isTauriRuntime()) root.append(devBanner);
-	root.append(body, statusBar);
+    const devBanner = el(
+        'div',
+        'dev-banner',
+        'Preview mode (no Tauri runtime) — showing stub data. Use `npm run tauri dev` or `npm run dev:stub` for a real merge.',
+    );
+    const body = el('main', 'merge-host');
+    const statusBar = el('footer', 'statusbar');
+    const statusText = el('span', 'status-text', 'Loading merge input…');
+    statusText.id = 'app-message';
+    const abortButton = button('Abort', 'btn btn-secondary');
+    abortButton.id = 'abort-button';
+    const saveButton = button('Save & Finish', 'btn btn-primary');
+    saveButton.id = 'save-button';
+    statusBar.append(
+        statusText,
+        el('span', 'toolbar-spacer'),
+        abortButton,
+        saveButton,
+    );
+    root.append(toolbar);
+    if (!isTauriRuntime()) root.append(devBanner);
+    root.append(body, statusBar);
 
-	setNavEnabled(false);
-	saveButton.disabled = true;
+    setNavEnabled(false);
+    saveButton.disabled = true;
 
-	let view: ThreeWayView | null = null;
-	let busy = false;
+    let view: ThreeWayView | null = null;
+    let busy = false;
 
-	abortButton.addEventListener("click", () => void onAbort());
-	saveButton.addEventListener("click", () => void onSave());
+    abortButton.addEventListener('click', () => void onAbort());
+    saveButton.addEventListener('click', () => void onSave());
 
-	// --- Load ---------------------------------------------------------------
-	// Outside a real Tauri webview (e.g. `npm run dev` opened as a plain
-	// browser tab) there's no backend to call and nothing to merge, so skip
-	// straight to a stub merge for UI preview instead of surfacing the raw
-	// "nothing to call invoke() on" failure.
-	const devMode = !isTauriRuntime();
-	let input: MergeInputPayload;
-	let mergeResult: ThreeWayMergeResult;
-	if (devMode) {
-		input = devStubMergeInput();
-		mergeResult = devStubMergeResult(input);
-	} else {
-		try {
-			input = await getMergeInput();
-		} catch (err) {
-			showError(`Failed to load merge input: ${String(err)}`);
-			return;
-		}
-		try {
-			mergeResult = await computeThreeWayMerge(input.base ?? null, input.local, input.remote);
-		} catch (err) {
-			// Internal-invariant violation in the Rust merge. Never shown a
-			// partial/wrong merge; the user can only abort.
-			showError(`Merge computation failed (internal error): ${String(err)}`);
-			return;
-		}
-	}
-	const title = windowTitleFor(input.fileName);
-	document.title = title;
-	try {
-		// Best-effort: a missing title must never block the merge itself.
-		await options.setWindowTitle?.(title);
-	} catch (err) {
-		console.warn("could not set the window title", err);
-	}
-	try {
-		view = createThreeWayView(body, input, mergeResult, {
-			computeWordDiff: devMode ? undefined : computeWordDiff,
-			onUpdate: refreshStatus,
-			paneWidths: options.initialPaneWidths,
-			onPaneWidthsChange: options.onPaneWidthsChange,
-			onHistoryChange: ({ canUndo, canRedo }) => {
-				undoButton.disabled = !canUndo;
-				redoButton.disabled = !canRedo;
-			},
-		});
-	} catch (err) {
-		showError(`Could not display the merge: ${String(err)}`);
-		return;
-	}
-	saveButton.disabled = false;
-	setNavEnabled(true);
-	refreshStatus();
-	const first = nextConflict(view.conflictModel, -1);
-	if (first >= 0) view.focusHunk(first);
+    // --- Load ---------------------------------------------------------------
+    // Outside a real Tauri webview (e.g. `npm run dev` opened as a plain
+    // browser tab) there's no backend to call and nothing to merge, so skip
+    // straight to a stub merge for UI preview instead of surfacing the raw
+    // "nothing to call invoke() on" failure.
+    const devMode = !isTauriRuntime();
+    let input: MergeInputPayload;
+    let mergeResult: ThreeWayMergeResult;
+    if (devMode) {
+        input = devStubMergeInput();
+        mergeResult = devStubMergeResult(input);
+    } else {
+        try {
+            input = await getMergeInput();
+        } catch (err) {
+            showError(`Failed to load merge input: ${String(err)}`);
+            return;
+        }
+        try {
+            mergeResult = await computeThreeWayMerge(
+                input.base ?? null,
+                input.local,
+                input.remote,
+            );
+        } catch (err) {
+            // Internal-invariant violation in the Rust merge. Never shown a
+            // partial/wrong merge; the user can only abort.
+            showError(
+                `Merge computation failed (internal error): ${String(err)}`,
+            );
+            return;
+        }
+    }
+    const title = windowTitleFor(input.fileName);
+    document.title = title;
+    try {
+        // Best-effort: a missing title must never block the merge itself.
+        await options.setWindowTitle?.(title);
+    } catch (err) {
+        console.warn('could not set the window title', err);
+    }
+    try {
+        view = createThreeWayView(body, input, mergeResult, {
+            computeWordDiff: devMode ? undefined : computeWordDiff,
+            onUpdate: refreshStatus,
+            paneWidths: options.initialPaneWidths,
+            onPaneWidthsChange: options.onPaneWidthsChange,
+            onHistoryChange: ({ canUndo, canRedo }) => {
+                undoButton.disabled = !canUndo;
+                redoButton.disabled = !canRedo;
+            },
+        });
+    } catch (err) {
+        showError(`Could not display the merge: ${String(err)}`);
+        return;
+    }
+    saveButton.disabled = false;
+    setNavEnabled(true);
+    refreshStatus();
+    const first = nextConflict(view.conflictModel, -1);
+    if (first >= 0) view.focusHunk(first);
 
-	prevButton.addEventListener("click", () => navigate(-1));
-	nextButton.addEventListener("click", () => navigate(1));
-	autoMergeButton.addEventListener("click", () => onAutoMerge());
-	undoButton.addEventListener("click", () => view?.undo());
-	redoButton.addEventListener("click", () => view?.redo());
-	wordDiffToggle.addEventListener("click", () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")));
-	shortcutsButton.addEventListener("click", () => showShortcutsHelp(root));
-	// Not torn down: the app occupies its window for the whole merge-tool
-	// process lifetime (same assumption the ad-hoc listener this replaces
-	// made), so there is no unmount point to call the returned cleanup from.
-	installKeymap({
-		nextConflict: () => navigate(1),
-		prevConflict: () => navigate(-1),
-		acceptLocal: () => acceptSide("local"),
-		acceptRemote: () => acceptSide("remote"),
-		acceptBoth: () => acceptBoth(),
-		save: () => void onSave(),
-		abort: () => void onAbort(),
-		undo: () => view?.undo(),
-		redo: () => view?.redo(),
-		toggleWordDiff: () => setWordDiffEnabled(!wordDiffToggle.classList.contains("is-on")),
-		toggleTheme: () => cycleTheme(),
-		showHelp: () => showShortcutsHelp(root),
-	});
+    prevButton.addEventListener('click', () => navigate(-1));
+    nextButton.addEventListener('click', () => navigate(1));
+    autoMergeButton.addEventListener('click', () => onAutoMerge());
+    undoButton.addEventListener('click', () => view?.undo());
+    redoButton.addEventListener('click', () => view?.redo());
+    wordDiffToggle.addEventListener('click', () =>
+        setWordDiffEnabled(!wordDiffToggle.classList.contains('is-on')),
+    );
+    shortcutsButton.addEventListener('click', () => showShortcutsHelp(root));
+    // Not torn down: the app occupies its window for the whole merge-tool
+    // process lifetime (same assumption the ad-hoc listener this replaces
+    // made), so there is no unmount point to call the returned cleanup from.
+    installKeymap({
+        nextConflict: () => navigate(1),
+        prevConflict: () => navigate(-1),
+        acceptLocal: () => acceptSide('local'),
+        acceptRemote: () => acceptSide('remote'),
+        acceptBoth: () => acceptBoth(),
+        save: () => void onSave(),
+        abort: () => void onAbort(),
+        undo: () => view?.undo(),
+        redo: () => view?.redo(),
+        toggleWordDiff: () =>
+            setWordDiffEnabled(!wordDiffToggle.classList.contains('is-on')),
+        toggleTheme: () => cycleTheme(),
+        showHelp: () => showShortcutsHelp(root),
+    });
 
-	// --- Behaviour ------------------------------------------------------------
-	function currentHunk(): number {
-		if (!view) return -1;
-		return view.hunkIndexAt(view.resultView.state.selection.main.head);
-	}
+    // --- Behaviour ------------------------------------------------------------
+    function currentHunk(): number {
+        if (!view) return -1;
+        return view.hunkIndexAt(view.resultView.state.selection.main.head);
+    }
 
-	function navigate(direction: 1 | -1) {
-		if (!view) return;
-		const from = currentHunk();
-		const target = direction === 1 ? nextConflict(view.conflictModel, from) : prevConflict(view.conflictModel, from);
-		if (target >= 0) view.focusHunk(target);
-	}
+    function navigate(direction: 1 | -1) {
+        if (!view) return;
+        const from = currentHunk();
+        const target =
+            direction === 1
+                ? nextConflict(view.conflictModel, from)
+                : prevConflict(view.conflictModel, from);
+        if (target >= 0) view.focusHunk(target);
+    }
 
-	function setWordDiffEnabled(on: boolean) {
-		wordDiffToggle.classList.toggle("is-on", on);
-		wordDiffToggle.setAttribute("aria-pressed", String(on));
-		view?.setWordDiffEnabled(on);
-	}
+    function setWordDiffEnabled(on: boolean) {
+        wordDiffToggle.classList.toggle('is-on', on);
+        wordDiffToggle.setAttribute('aria-pressed', String(on));
+        view?.setWordDiffEnabled(on);
+    }
 
-	/** Accept `side` for the conflict the result cursor is currently inside. */
-	function acceptSide(side: "local" | "remote") {
-		if (!view) return;
-		const index = currentHunk();
-		if (index >= 0) view.pullHunk(index, side);
-	}
+    /** Accept `side` for the conflict the result cursor is currently inside. */
+    function acceptSide(side: 'local' | 'remote') {
+        if (!view) return;
+        const index = currentHunk();
+        if (index >= 0) view.pullHunk(index, side);
+    }
 
-	/**
-	 * Resolves every unresolved conflict where both sides agree modulo
-	 * whitespace, leaving genuine disagreements untouched. Only runs on an
-	 * explicit click — never automatically on load.
-	 */
-	function onAutoMerge() {
-		if (!view) return;
-		const resolvedCount = view.autoMergeTrivial();
-		refreshStatus();
-		// Always say something: a silent no-op (the common case — most repos
-		// have few or no whitespace-only conflicts) reads as "the button is
-		// broken" otherwise.
-		setStatus(
-			resolvedCount > 0
-				? `Auto-merged ${resolvedCount} conflict${resolvedCount === 1 ? "" : "s"}`
-				: "No whitespace-only conflicts to auto-merge",
-			resolvedCount > 0 ? "ok" : "pending",
-		);
-	}
+    /**
+     * Resolves every unresolved conflict where both sides agree modulo
+     * whitespace, leaving genuine disagreements untouched. Only runs on an
+     * explicit click — never automatically on load.
+     */
+    function onAutoMerge() {
+        if (!view) return;
+        const resolvedCount = view.autoMergeTrivial();
+        refreshStatus();
+        // Always say something: a silent no-op (the common case — most repos
+        // have few or no whitespace-only conflicts) reads as "the button is
+        // broken" otherwise.
+        setStatus(
+            resolvedCount > 0
+                ? `Auto-merged ${resolvedCount} conflict${resolvedCount === 1 ? '' : 's'}`
+                : 'No whitespace-only conflicts to auto-merge',
+            resolvedCount > 0 ? 'ok' : 'pending',
+        );
+    }
 
-	/** Accept both sides for the conflict the result cursor is currently inside. */
-	function acceptBoth() {
-		if (!view) return;
-		const index = currentHunk();
-		if (index >= 0) view.pullBoth(index);
-	}
+    /** Accept both sides for the conflict the result cursor is currently inside. */
+    function acceptBoth() {
+        if (!view) return;
+        const index = currentHunk();
+        if (index >= 0) view.pullBoth(index);
+    }
 
-	function refreshStatus() {
-		if (!view) return;
-		const conflicts = view.hunks.flatMap((h, i) => (h.kind === "Conflict" ? [i] : []));
-		const unresolved = view.conflictModel.unresolvedCount();
-		const position = conflicts.indexOf(currentHunk());
-		counter.textContent =
-			conflicts.length === 0
-				? "No conflicts"
-				: unresolved === 0
-					? "All resolved"
-					: `Conflict ${position >= 0 ? position + 1 : "–"} of ${conflicts.length}`;
-		// Nothing left to jump between or auto-merge once every conflict is
-		// resolved — leaving them enabled with nothing to do (prev/next find
-		// no unresolved hunk to land on) reads as broken, not done.
-		prevButton.disabled = unresolved === 0;
-		nextButton.disabled = unresolved === 0;
-		const canAutoMerge = unresolved > 0 && view.hasTrivialConflicts();
-		autoMergeButton.disabled = !canAutoMerge;
-		const autoMergeTitle = canAutoMerge
-			? "Resolve conflicts where both sides agree modulo whitespace"
-			: unresolved === 0
-				? "All conflicts resolved"
-				: "No whitespace-only conflicts to auto-merge";
-		autoMergeButton.title = autoMergeTitle;
-		autoMergeButton.setAttribute("aria-label", autoMergeTitle);
-		setStatus(
-			unresolved === 0
-				? conflicts.length === 0
-					? "Everything merged automatically"
-					: "All conflicts resolved"
-				: `${unresolved} conflict${unresolved === 1 ? "" : "s"} remaining`,
-			unresolved === 0 ? "ok" : "pending",
-		);
-	}
+    function refreshStatus() {
+        if (!view) return;
+        const conflicts = view.hunks.flatMap((h, i) =>
+            h.kind === 'Conflict' ? [i] : [],
+        );
+        const unresolved = view.conflictModel.unresolvedCount();
+        const position = conflicts.indexOf(currentHunk());
+        counter.textContent =
+            conflicts.length === 0
+                ? 'No conflicts'
+                : unresolved === 0
+                  ? 'All resolved'
+                  : `Conflict ${position >= 0 ? position + 1 : '–'} of ${conflicts.length}`;
+        // Nothing left to jump between or auto-merge once every conflict is
+        // resolved — leaving them enabled with nothing to do (prev/next find
+        // no unresolved hunk to land on) reads as broken, not done.
+        prevButton.disabled = unresolved === 0;
+        nextButton.disabled = unresolved === 0;
+        const canAutoMerge = unresolved > 0 && view.hasTrivialConflicts();
+        autoMergeButton.disabled = !canAutoMerge;
+        const autoMergeTitle = canAutoMerge
+            ? 'Resolve conflicts where both sides agree modulo whitespace'
+            : unresolved === 0
+              ? 'All conflicts resolved'
+              : 'No whitespace-only conflicts to auto-merge';
+        autoMergeButton.title = autoMergeTitle;
+        autoMergeButton.setAttribute('aria-label', autoMergeTitle);
+        setStatus(
+            unresolved === 0
+                ? conflicts.length === 0
+                    ? 'Everything merged automatically'
+                    : 'All conflicts resolved'
+                : `${unresolved} conflict${unresolved === 1 ? '' : 's'} remaining`,
+            unresolved === 0 ? 'ok' : 'pending',
+        );
+    }
 
-	async function onSave() {
-		if (!view || busy) return;
-		if (devMode) {
-			setStatus("Save is not available in preview mode (no Tauri runtime).", "error");
-			return;
-		}
-		const unresolved = view.conflictModel.unresolvedCount();
-		let force = false;
-		if (unresolved > 0) {
-			const ok = await confirmDialog(root, {
-				title: "Save with unresolved conflicts?",
-				body: `${unresolved} conflict${unresolved === 1 ? " is" : "s are"} still unresolved. Their hunks will be saved as they currently appear in the result (local's version unless you edited them).`,
-				confirmLabel: "Save anyway",
-			});
-			if (!ok) return;
-			// Matches save_result's contract: unresolved > 0 is refused unless forced.
-			force = true;
-		}
-		busy = true;
-		setButtonsDisabled(true);
-		setStatus("Saving…", "pending");
-		try {
-			await saveResult(view.resultView.state.doc.toString(), unresolved, force);
-			// On success the backend exits the process; if we're still here, say so.
-			setStatus("Saved.", "ok");
-		} catch (err) {
-			setStatus(`Save failed: ${String(err)}`, "error");
-		} finally {
-			busy = false;
-			setButtonsDisabled(false);
-		}
-	}
+    async function onSave() {
+        if (!view || busy) return;
+        if (devMode) {
+            setStatus(
+                'Save is not available in preview mode (no Tauri runtime).',
+                'error',
+            );
+            return;
+        }
+        const unresolved = view.conflictModel.unresolvedCount();
+        let force = false;
+        if (unresolved > 0) {
+            const ok = await confirmDialog(root, {
+                title: 'Save with unresolved conflicts?',
+                body: `${unresolved} conflict${unresolved === 1 ? ' is' : 's are'} still unresolved. Their hunks will be saved as they currently appear in the result (local's version unless you edited them).`,
+                confirmLabel: 'Save anyway',
+            });
+            if (!ok) return;
+            // Matches save_result's contract: unresolved > 0 is refused unless forced.
+            force = true;
+        }
+        busy = true;
+        setButtonsDisabled(true);
+        setStatus('Saving…', 'pending');
+        try {
+            await saveResult(
+                view.resultView.state.doc.toString(),
+                unresolved,
+                force,
+            );
+            // On success the backend exits the process; if we're still here, say so.
+            setStatus('Saved.', 'ok');
+        } catch (err) {
+            setStatus(`Save failed: ${String(err)}`, 'error');
+        } finally {
+            busy = false;
+            setButtonsDisabled(false);
+        }
+    }
 
-	async function onAbort() {
-		if (busy) return;
-		if (devMode) {
-			setStatus("Abort is not available in preview mode (no Tauri runtime).", "error");
-			return;
-		}
-		const ok = await confirmDialog(root, {
-			title: "Abort this merge?",
-			body: "Nothing will be written. Git will treat the file as still conflicted.",
-			confirmLabel: "Abort merge",
-			danger: true,
-		});
-		if (!ok) return;
-		busy = true;
-		setButtonsDisabled(true);
-		try {
-			await abortMerge();
-		} catch (err) {
-			setStatus(`Abort failed: ${String(err)}`, "error");
-		} finally {
-			busy = false;
-			setButtonsDisabled(false);
-		}
-	}
+    async function onAbort() {
+        if (busy) return;
+        if (devMode) {
+            setStatus(
+                'Abort is not available in preview mode (no Tauri runtime).',
+                'error',
+            );
+            return;
+        }
+        const ok = await confirmDialog(root, {
+            title: 'Abort this merge?',
+            body: 'Nothing will be written. Git will treat the file as still conflicted.',
+            confirmLabel: 'Abort merge',
+            danger: true,
+        });
+        if (!ok) return;
+        busy = true;
+        setButtonsDisabled(true);
+        try {
+            await abortMerge();
+        } catch (err) {
+            setStatus(`Abort failed: ${String(err)}`, 'error');
+        } finally {
+            busy = false;
+            setButtonsDisabled(false);
+        }
+    }
 
-	function showError(message: string) {
-		body.innerHTML = "";
-		const box = el("div", "error-state");
-		box.append(el("h2", "error-title", "Can't show this merge"), el("p", "error-body", message));
-		body.appendChild(box);
-		setStatus(message, "error");
-		saveButton.disabled = true;
-		abortButton.disabled = false;
-	}
+    function showError(message: string) {
+        body.innerHTML = '';
+        const box = el('div', 'error-state');
+        box.append(
+            el('h2', 'error-title', "Can't show this merge"),
+            el('p', 'error-body', message),
+        );
+        body.appendChild(box);
+        setStatus(message, 'error');
+        saveButton.disabled = true;
+        abortButton.disabled = false;
+    }
 
-	function setStatus(text: string, tone: "ok" | "pending" | "error") {
-		statusText.textContent = text;
-		statusText.dataset.tone = tone;
-	}
+    function setStatus(text: string, tone: 'ok' | 'pending' | 'error') {
+        statusText.textContent = text;
+        statusText.dataset.tone = tone;
+    }
 
-	function setNavEnabled(enabled: boolean) {
-		prevButton.disabled = !enabled;
-		nextButton.disabled = !enabled;
-		autoMergeButton.disabled = !enabled;
-		wordDiffToggle.disabled = !enabled;
-	}
+    function setNavEnabled(enabled: boolean) {
+        prevButton.disabled = !enabled;
+        nextButton.disabled = !enabled;
+        autoMergeButton.disabled = !enabled;
+        wordDiffToggle.disabled = !enabled;
+    }
 
-	function setButtonsDisabled(disabled: boolean) {
-		abortButton.disabled = disabled;
-		saveButton.disabled = disabled || !view;
-	}
+    function setButtonsDisabled(disabled: boolean) {
+        abortButton.disabled = disabled;
+        saveButton.disabled = disabled || !view;
+    }
 }
 
 /**
@@ -391,48 +460,56 @@ export async function mountApp(root: HTMLElement, options: MountAppOptions = {})
  * whose support inside the Tauri 2 macOS webview is not guaranteed.
  */
 export function confirmDialog(
-	root: HTMLElement,
-	options: { title: string; body: string; confirmLabel: string; danger?: boolean },
+    root: HTMLElement,
+    options: {
+        title: string;
+        body: string;
+        confirmLabel: string;
+        danger?: boolean;
+    },
 ): Promise<boolean> {
-	return new Promise((resolve) => {
-		const previousFocus = document.activeElement as HTMLElement | null;
-		const backdrop = el("div", "modal-backdrop");
-		const card = el("div", "modal-card");
-		card.setAttribute("role", "dialog");
-		card.setAttribute("aria-modal", "true");
-		const title = el("h2", "modal-title", options.title);
-		const text = el("p", "modal-body", options.body);
-		const actions = el("div", "modal-actions");
-		const cancel = button("Cancel", "btn btn-secondary");
-		cancel.dataset.action = "cancel";
-		const confirm = button(options.confirmLabel, options.danger ? "btn btn-danger" : "btn btn-primary");
-		confirm.dataset.action = "confirm";
-		actions.append(cancel, confirm);
-		card.append(title, text, actions);
-		backdrop.appendChild(card);
-		root.appendChild(backdrop);
-		confirm.focus();
+    return new Promise((resolve) => {
+        const previousFocus = document.activeElement as HTMLElement | null;
+        const backdrop = el('div', 'modal-backdrop');
+        const card = el('div', 'modal-card');
+        card.setAttribute('role', 'dialog');
+        card.setAttribute('aria-modal', 'true');
+        const title = el('h2', 'modal-title', options.title);
+        const text = el('p', 'modal-body', options.body);
+        const actions = el('div', 'modal-actions');
+        const cancel = button('Cancel', 'btn btn-secondary');
+        cancel.dataset.action = 'cancel';
+        const confirm = button(
+            options.confirmLabel,
+            options.danger ? 'btn btn-danger' : 'btn btn-primary',
+        );
+        confirm.dataset.action = 'confirm';
+        actions.append(cancel, confirm);
+        card.append(title, text, actions);
+        backdrop.appendChild(card);
+        root.appendChild(backdrop);
+        confirm.focus();
 
-		const finish = (result: boolean) => {
-			document.removeEventListener("keydown", onKey, true);
-			backdrop.remove();
-			previousFocus?.focus?.();
-			resolve(result);
-		};
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				finish(false);
-			}
-		};
-		document.addEventListener("keydown", onKey, true);
-		cancel.addEventListener("click", () => finish(false));
-		confirm.addEventListener("click", () => finish(true));
-		backdrop.addEventListener("mousedown", (event) => {
-			if (event.target === backdrop) finish(false);
-		});
-	});
+        const finish = (result: boolean) => {
+            document.removeEventListener('keydown', onKey, true);
+            backdrop.remove();
+            previousFocus?.focus?.();
+            resolve(result);
+        };
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                finish(false);
+            }
+        };
+        document.addEventListener('keydown', onKey, true);
+        cancel.addEventListener('click', () => finish(false));
+        confirm.addEventListener('click', () => finish(true));
+        backdrop.addEventListener('mousedown', (event) => {
+            if (event.target === backdrop) finish(false);
+        });
+    });
 }
 
 /**
@@ -444,75 +521,87 @@ export function confirmDialog(
  * with the bindings `installKeymap` actually recognizes.
  */
 export function showShortcutsHelp(root: HTMLElement): void {
-	const previousFocus = document.activeElement as HTMLElement | null;
-	const backdrop = el("div", "modal-backdrop");
-	const card = el("div", "modal-card modal-card-wide");
-	card.setAttribute("role", "dialog");
-	card.setAttribute("aria-modal", "true");
-	const title = el("h2", "modal-title", "Keyboard shortcuts");
-	const list = el("div", "shortcuts-list");
-	for (const binding of KEYMAP_BINDINGS) {
-		const row = el("div", "shortcuts-row");
-		const desc = el("span", "shortcuts-desc", binding.description);
-		const keyCell = el("span", "shortcuts-key");
-		const kbd = document.createElement("kbd");
-		kbd.className = "shortcuts-kbd";
-		kbd.textContent = binding.combo;
-		keyCell.appendChild(kbd);
-		row.append(desc, keyCell);
-		list.appendChild(row);
-	}
-	const actions = el("div", "modal-actions");
-	const close = button("Close", "btn btn-primary");
-	close.dataset.action = "close";
-	actions.append(close);
-	card.append(title, list, actions);
-	backdrop.appendChild(card);
-	root.appendChild(backdrop);
-	close.focus();
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const backdrop = el('div', 'modal-backdrop');
+    const card = el('div', 'modal-card modal-card-wide');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    const title = el('h2', 'modal-title', 'Keyboard shortcuts');
+    const list = el('div', 'shortcuts-list');
+    for (const binding of KEYMAP_BINDINGS) {
+        const row = el('div', 'shortcuts-row');
+        const desc = el('span', 'shortcuts-desc', binding.description);
+        const keyCell = el('span', 'shortcuts-key');
+        const kbd = document.createElement('kbd');
+        kbd.className = 'shortcuts-kbd';
+        kbd.textContent = binding.combo;
+        keyCell.appendChild(kbd);
+        row.append(desc, keyCell);
+        list.appendChild(row);
+    }
+    const actions = el('div', 'modal-actions');
+    const close = button('Close', 'btn btn-primary');
+    close.dataset.action = 'close';
+    actions.append(close);
+    card.append(title, list, actions);
+    backdrop.appendChild(card);
+    root.appendChild(backdrop);
+    close.focus();
 
-	const finish = () => {
-		document.removeEventListener("keydown", onKey, true);
-		backdrop.remove();
-		previousFocus?.focus?.();
-	};
-	const onKey = (event: KeyboardEvent) => {
-		if (event.key === "Escape") {
-			event.preventDefault();
-			event.stopPropagation();
-			finish();
-		}
-	};
-	document.addEventListener("keydown", onKey, true);
-	close.addEventListener("click", finish);
-	backdrop.addEventListener("mousedown", (event) => {
-		if (event.target === backdrop) finish();
-	});
+    const finish = () => {
+        document.removeEventListener('keydown', onKey, true);
+        backdrop.remove();
+        previousFocus?.focus?.();
+    };
+    const onKey = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            finish();
+        }
+    };
+    document.addEventListener('keydown', onKey, true);
+    close.addEventListener('click', finish);
+    backdrop.addEventListener('mousedown', (event) => {
+        if (event.target === backdrop) finish();
+    });
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== undefined) node.textContent = text;
-	return node;
+function el<K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    className?: string,
+    text?: string,
+): HTMLElementTagNameMap[K] {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
 }
 
-function button(text: string, className: string, title?: string): HTMLButtonElement {
-	const node = el("button", className, text);
-	node.type = "button";
-	if (title) {
-		node.title = title;
-		node.setAttribute("aria-label", title);
-	}
-	return node;
+function button(
+    text: string,
+    className: string,
+    title?: string,
+): HTMLButtonElement {
+    const node = el('button', className, text);
+    node.type = 'button';
+    if (title) {
+        node.title = title;
+        node.setAttribute('aria-label', title);
+    }
+    return node;
 }
 
 /** Same as `button`, but with a static trusted SVG icon instead of a text label. */
-function iconButton(svg: string, className: string, title: string): HTMLButtonElement {
-	const node = el("button", className);
-	node.type = "button";
-	node.innerHTML = svg;
-	node.title = title;
-	node.setAttribute("aria-label", title);
-	return node;
+function iconButton(
+    svg: string,
+    className: string,
+    title: string,
+): HTMLButtonElement {
+    const node = el('button', className);
+    node.type = 'button';
+    node.innerHTML = svg;
+    node.title = title;
+    node.setAttribute('aria-label', title);
+    return node;
 }

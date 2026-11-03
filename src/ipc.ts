@@ -1,9 +1,9 @@
-import { commands } from "./bindings";
 import type {
-  MergeInputPayload_Serialize as MergeInputPayload,
-  ThreeWayMergeResult,
-  WordDiffOp,
-} from "./bindings";
+    MergeInputPayload_Serialize as MergeInputPayload,
+    ThreeWayMergeResult,
+    WordDiffOp,
+} from './bindings';
+import { commands } from './bindings';
 
 export type { MergeInputPayload };
 
@@ -14,7 +14,7 @@ export type { MergeInputPayload };
  * callers are expected to handle that rejection themselves.
  */
 export async function getMergeInput(): Promise<MergeInputPayload> {
-  return commands.getMergeInput();
+    return commands.getMergeInput();
 }
 
 /**
@@ -24,11 +24,11 @@ export async function getMergeInput(): Promise<MergeInputPayload> {
  * rejects with the backend's error string.
  */
 export async function saveResult(
-  content: string,
-  unresolvedCount: number,
-  force: boolean,
+    content: string,
+    unresolvedCount: number,
+    force: boolean,
 ): Promise<void> {
-  await commands.saveResult(content, unresolvedCount, force);
+    await commands.saveResult(content, unresolvedCount, force);
 }
 
 /**
@@ -36,7 +36,7 @@ export async function saveResult(
  * immediately, so this promise may never resolve in practice.
  */
 export async function abortMerge(): Promise<void> {
-  await commands.abortMerge();
+    await commands.abortMerge();
 }
 
 /**
@@ -46,14 +46,17 @@ export async function abortMerge(): Promise<void> {
  * caller must handle that rejection and show an error state.
  */
 export async function computeThreeWayMerge(
-  base: string | null,
-  local: string,
-  remote: string,
+    base: string | null,
+    local: string,
+    remote: string,
 ): Promise<ThreeWayMergeResult> {
-  return commands.computeThreeWayMergeCommand(base, local, remote);
+    return commands.computeThreeWayMergeCommand(base, local, remote);
 }
 
 /** Calls the `compute_word_diff_command` Tauri command (infallible backend-side). */
-export async function computeWordDiff(oldText: string, newText: string): Promise<WordDiffOp[]> {
-  return commands.computeWordDiffCommand(oldText, newText);
+export async function computeWordDiff(
+    oldText: string,
+    newText: string,
+): Promise<WordDiffOp[]> {
+    return commands.computeWordDiffCommand(oldText, newText);
 }

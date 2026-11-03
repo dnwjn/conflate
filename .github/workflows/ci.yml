@@ -38,6 +38,9 @@ jobs:
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
 
+      - name: npm run lint
+        run: npm run lint
+
       - name: npm test
         run: npm test
 
