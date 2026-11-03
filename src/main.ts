@@ -1,4 +1,4 @@
-import { mountApp, wireUpdateUi } from './app';
+import { type MountAppHandle, mountApp, wireUpdateUi } from './app';
 import {
     DEFAULT_PREFS,
     loadPrefs,
@@ -93,16 +93,24 @@ function watchWindowSize(
  * every run. Never blocks or interrupts the merge flow: any failure (no
  * network, no Tauri runtime, manifest/auth failure) is swallowed by
  * `checkForUpdate` itself.
+ *
+ * Marks `app`'s version-button dot via `notifyUpdateFound` regardless of
+ * how the user is actually told about it (here, the dismissible banner from
+ * `wireUpdateUi`) — the dot reflects "an update exists", not "you clicked
+ * the version number to check".
  */
 function scheduleBackgroundUpdateCheck(
     root: HTMLElement,
+    app: MountAppHandle,
     skippedVersion: Prefs['skippedUpdateVersion'],
     onSkipVersion: (version: string) => void,
 ): void {
     setTimeout(() => {
         void checkForUpdate().then((update) => {
-            if (update)
+            if (update) {
+                app.notifyUpdateFound(update);
                 wireUpdateUi(root, update, { skippedVersion, onSkipVersion });
+            }
         });
     }, 3000);
 }
@@ -121,7 +129,7 @@ window.addEventListener('DOMContentLoaded', () => {
         await restoreWindowSize(prefs.windowSize);
         watchWindowSize(store);
 
-        await mountApp(root, {
+        const app = await mountApp(root, {
             initialTheme: prefs.theme,
             onThemeOverrideChange: (override) => {
                 if (store) void savePrefTheme(store, override);
@@ -140,6 +148,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
         scheduleBackgroundUpdateCheck(
             root,
+            app,
             prefs.skippedUpdateVersion,
             (version) => {
                 if (store) void savePrefSkippedUpdateVersion(store, version);

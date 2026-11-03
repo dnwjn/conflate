@@ -36,6 +36,15 @@
 	--auto-bg: #e9f7ee;
 	--auto-border: #86c99b;
 	--auto-ink: #1a7f37;
+	/* Same colors as --conflict-bg/--auto-bg against --bg, but as a
+	 * translucent overlay rather than an opaque fill (alpha-composited
+	 * values solved so the result is pixel-identical over --bg). Used only
+	 * on `.cm-line` in the RESULT pane (see "Hunk bands" below), where an
+	 * opaque line background would otherwise paint fully over CodeMirror's
+	 * selection layer (rendered behind `.cm-content`) and hide text
+	 * selection inside an auto-merged/conflict hunk. */
+	--conflict-line-bg: rgba(251, 229, 199, 0.5);
+	--auto-line-bg: rgba(211, 239, 221, 0.5);
 
 	--live-local-bg: rgba(37, 99, 235, 0.08);
 	--live-remote-bg: rgba(147, 51, 234, 0.08);
@@ -87,6 +96,8 @@
 		--auto-bg: #0f2317;
 		--auto-border: #2f6b43;
 		--auto-ink: #56d364;
+		--conflict-line-bg: rgba(73, 49, 11, 0.5);
+		--auto-line-bg: rgba(17, 53, 23, 0.5);
 
 		--live-local-bg: rgba(88, 166, 255, 0.1);
 		--live-remote-bg: rgba(199, 146, 234, 0.1);
@@ -132,6 +143,8 @@
 	--auto-bg: #0f2317;
 	--auto-border: #2f6b43;
 	--auto-ink: #56d364;
+	--conflict-line-bg: rgba(73, 49, 11, 0.5);
+	--auto-line-bg: rgba(17, 53, 23, 0.5);
 
 	--live-local-bg: rgba(88, 166, 255, 0.1);
 	--live-remote-bg: rgba(199, 146, 234, 0.1);
@@ -526,12 +539,12 @@ button:focus-visible {
 }
 
 .tw-root .cm-line.cm-hunk-conflict {
-	background: var(--conflict-bg);
+	background: var(--conflict-line-bg);
 }
 
 .tw-pane-result .cm-line.cm-hunk-auto,
 .tw-pane-result .cm-line.cm-hunk-resolved {
-	background: var(--auto-bg);
+	background: var(--auto-line-bg);
 }
 
 .tw-root .cm-line.cm-hunk-first {
@@ -675,6 +688,10 @@ button:focus-visible {
 
 .cm-pull-remote {
 	background: var(--remote);
+}
+
+.cm-pull-both {
+	background: var(--brand);
 }
 
 .cm-hunk-pill {

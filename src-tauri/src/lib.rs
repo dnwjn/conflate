@@ -2,6 +2,7 @@ pub mod cli;
 pub mod commands;
 pub mod diff;
 pub mod exit;
+pub mod git_labels;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]

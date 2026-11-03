@@ -132,6 +132,14 @@ export type MergeInputPayload_Deserialize = {
 	 *  is currently open.
 	 */
 	fileName: string,
+	/**
+	 *  Best-effort branch labels for the LOCAL/REMOTE panes (see
+	 *  `git_labels::detect_branch_labels`). `None` when they can't be
+	 *  determined — the frontend falls back to its existing "HEAD"/no-label
+	 *  defaults in that case.
+	 */
+	localBranch?: string | null,
+	remoteBranch?: string | null,
 };
 
 /**
@@ -153,6 +161,14 @@ export type MergeInputPayload_Serialize = {
 	 *  is currently open.
 	 */
 	fileName: string,
+	/**
+	 *  Best-effort branch labels for the LOCAL/REMOTE panes (see
+	 *  `git_labels::detect_branch_labels`). `None` when they can't be
+	 *  determined — the frontend falls back to its existing "HEAD"/no-label
+	 *  defaults in that case.
+	 */
+	localBranch: string | null,
+	remoteBranch: string | null,
 };
 
 export type ThreeWayMergeResult = {

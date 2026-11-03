@@ -10,7 +10,7 @@ export function label(name: string): string {
 
 export const VERSION = 2;
 
-export const TAGLINE = 'fast, no bugs';
+	export const TAGLINE = 'fast, no bugs';
 
 export const NAME = 'conflate';
 

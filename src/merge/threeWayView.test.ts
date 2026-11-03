@@ -206,7 +206,7 @@ test("pullBoth inserts local's lines followed by remote's and marks the hunk res
     );
 });
 
-test('autoMergeTrivial resolves only whitespace-only conflicts, leaves genuine ones and never runs on its own', () => {
+test('whitespace-only conflicts are auto-resolved on load, genuine ones are not', () => {
     const trivialInput: MergeInputPayload = {
         base: 'one\ntwo\nthree\n',
         local: 'one\ntwo \nthree\n',
@@ -254,19 +254,15 @@ test('autoMergeTrivial resolves only whitespace-only conflicts, leaves genuine o
     );
     created.push(view);
 
-    // Never runs on its own: both conflicts are still unresolved right after mount.
-    expect(view.conflictModel.isResolved(1)).toBe(false);
-    expect(view.conflictModel.isResolved(2)).toBe(false);
-
-    expect(view.autoMergeTrivial()).toBe(1);
+    // The whitespace-only conflict is auto-resolved right after mount; the
+    // genuine one (different value, not just whitespace) is left untouched.
     expect(view.conflictModel.isResolved(1)).toBe(true);
     expect(view.conflictModel.isResolved(2)).toBe(false);
+    expect(view.conflictModel.wasAutoMerged(1)).toBe(true);
+    expect(view.conflictModel.wasAutoMerged(2)).toBe(false);
     // Resolves to local's exact bytes (not a normalized/trimmed version).
     const range = view.conflictModel.rangeFor(1);
     expect(view.resultView.state.sliceDoc(range.from, range.to)).toBe('two ');
-
-    // A second call is a no-op: nothing left that's both unresolved and trivial.
-    expect(view.autoMergeTrivial()).toBe(0);
 });
 
 test('a burst of result edits schedules at most one pending re-diff frame', () => {
@@ -328,6 +324,9 @@ test('pull arrows: both on an open conflict, otherwise only where pulling would 
     // result holds local's text, so only "accept remote" is offered.
     expect(resultDom.querySelectorAll('.cm-pull-local')).toHaveLength(1);
     expect(resultDom.querySelectorAll('.cm-pull-remote')).toHaveLength(2);
+    // "Accept both" only ever applies to the one genuine Conflict hunk, not
+    // the LocalOnly one.
+    expect(resultDom.querySelectorAll('.cm-pull-both')).toHaveLength(1);
     expect(
         resultDom.querySelectorAll('.cm-hunk-pill-auto-merged'),
     ).toHaveLength(1);
@@ -339,6 +338,16 @@ test('pull arrows: both on an open conflict, otherwise only where pulling would 
     expect(resultDom.querySelectorAll('.cm-hunk-pill-resolved')).toHaveLength(
         1,
     );
+});
+
+test('"accept both" stacks local then remote for an open conflict via its toolbar arrow', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-both') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nremote two\nthree\nfour local\n',
+    );
+    expect(view.conflictModel.isResolved(1)).toBe(true);
 });
 
 test('word diff marks substantive changes and skips whitespace-only ops; toggle hides them', async () => {

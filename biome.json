@@ -11,7 +11,8 @@
             "**/*.{js,jsx,ts,tsx,json,jsonc}",
             "!dist",
             "!src-tauri",
-            "!src/bindings.ts"
+            "!src/bindings.ts",
+            "!dev-fixtures"
         ]
     },
     "formatter": {

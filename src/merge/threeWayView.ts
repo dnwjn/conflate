@@ -100,17 +100,6 @@ export interface ThreeWayView {
      */
     pullBoth(hunkIndex: number): boolean;
     /**
-     * Resolves every unresolved `Conflict` hunk where local and remote agree
-     * modulo whitespace (`local_text.trim() === remote_text.trim()`) — a
-     * genuine disagreement (different value/logic) is left untouched for the
-     * user to pick a side. Only runs when called (e.g. from a toolbar
-     * button); never invoked automatically on load. Returns the number of
-     * hunks resolved.
-     */
-    autoMergeTrivial(): number;
-    /** Whether `autoMergeTrivial()` would resolve anything right now — for disabling its button when there's nothing to do. */
-    hasTrivialConflicts(): boolean;
-    /**
      * Index of the hunk the result cursor at offset `pos` is on (hunks tile
      * the document). A zero-width conflict at `pos` wins over the hunk that
      * starts at the same offset after it — see `hunkNav.hunkIndexAt`.
@@ -214,8 +203,10 @@ class HunkControlsWidget extends WidgetType {
         readonly index: number,
         readonly canPullLocal: boolean,
         readonly canPullRemote: boolean,
+        readonly canPullBoth: boolean,
         readonly pill: string | null,
         readonly onPull: (index: number, side: Side) => void,
+        readonly onPullBoth: (index: number) => void,
     ) {
         super();
     }
@@ -225,6 +216,7 @@ class HunkControlsWidget extends WidgetType {
             other.index === this.index &&
             other.canPullLocal === this.canPullLocal &&
             other.canPullRemote === this.canPullRemote &&
+            other.canPullBoth === this.canPullBoth &&
             other.pill === this.pill
         );
     }
@@ -237,6 +229,7 @@ class HunkControlsWidget extends WidgetType {
             wrap.appendChild(
                 this.button('local', '←', 'Accept local for this hunk'),
             );
+        if (this.canPullBoth) wrap.appendChild(this.bothButton());
         // Pill + remote arrow share ONE sticky-right-anchored group (rather
         // than each being independently `position: sticky; right: Npx`) so
         // they lay out side-by-side with a real CSS gap instead of two fixed
@@ -272,6 +265,23 @@ class HunkControlsWidget extends WidgetType {
         button.addEventListener('click', (event) => {
             event.preventDefault();
             this.onPull(this.index, side);
+        });
+        return button;
+    }
+
+    /** Stacks local's lines then remote's into the hunk — see `pullBoth`. */
+    private bothButton(): HTMLElement {
+        const title = 'Accept both (local, then remote)';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cm-pull-arrow cm-pull-both';
+        button.textContent = '⇵';
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        button.addEventListener('mousedown', (event) => event.preventDefault());
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            this.onPullBoth(this.index);
         });
         return button;
     }
@@ -347,8 +357,6 @@ function gapLine(doc: Text, line: number): { number: number; atEnd: boolean } {
         ? { number: line + 1, atEnd: false }
         : { number: doc.lines, atEnd: true };
 }
-
-const AUTO_KINDS = new Set(['LocalOnly', 'RemoteOnly', 'SameChange']);
 
 // ---------------------------------------------------------------------------
 // The composition
@@ -584,21 +592,34 @@ export function createThreeWayView(
                 open ||
                 computePullChange(doc, range, hunk.remote_text, covering) !==
                     null;
-            const pill = AUTO_KINDS.has(hunk.kind)
+            const canPullBoth =
+                hunk.kind === 'Conflict' &&
+                (open ||
+                    computePullChange(
+                        doc,
+                        range,
+                        hunk.local_text + hunk.remote_text,
+                        covering,
+                    ) !== null);
+            const pill = conflictModel.wasAutoMerged(i)
                 ? 'auto-merged'
                 : hunk.kind === 'Conflict' && resolved
                   ? 'resolved'
                   : null;
-            if (canPullLocal || canPullRemote || pill) {
+            if (canPullLocal || canPullRemote || canPullBoth || pill) {
                 decos.push(
                     Decoration.widget({
                         widget: new HunkControlsWidget(
                             i,
                             canPullLocal,
                             canPullRemote,
+                            canPullBoth,
                             pill,
                             (index, side) => {
                                 pullHunk(index, side);
+                            },
+                            (index) => {
+                                pullBoth(index);
                             },
                         ),
                         side: -1,
@@ -1042,31 +1063,6 @@ export function createThreeWayView(
         );
     }
 
-    function isTrivialConflict(hunkIndex: number): boolean {
-        const hunk = hunks[hunkIndex];
-        return (
-            hunk.kind === 'Conflict' &&
-            !conflictModel.isResolved(hunkIndex) &&
-            hunk.local_text.trim() === hunk.remote_text.trim()
-        );
-    }
-
-    function autoMergeTrivial(): number {
-        let resolvedCount = 0;
-        for (let i = 0; i < hunks.length; i++) {
-            if (!isTrivialConflict(i)) continue;
-            if (pullHunk(i, 'local')) resolvedCount++;
-        }
-        return resolvedCount;
-    }
-
-    function hasTrivialConflicts(): boolean {
-        for (let i = 0; i < hunks.length; i++) {
-            if (isTrivialConflict(i)) return true;
-        }
-        return false;
-    }
-
     function focusHunk(hunkIndex: number) {
         if (hunkIndex < 0 || hunkIndex >= hunks.length) return;
         const { from } = conflictModel.rangeFor(hunkIndex);
@@ -1095,8 +1091,6 @@ export function createThreeWayView(
         hunks,
         pullHunk,
         pullBoth,
-        autoMergeTrivial,
-        hasTrivialConflicts,
         hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
         focusHunk,
         setWordDiffEnabled(enabled: boolean) {

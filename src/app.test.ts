@@ -65,7 +65,7 @@ test('an internal-invariant rejection from compute_three_way_merge shows an erro
         compute_three_way_merge_command: () =>
             Promise.reject('invariant violated: hunks do not tile'),
     });
-    await expect(mountApp(root)).resolves.toBeUndefined();
+    await expect(mountApp(root)).resolves.not.toBeNull();
     expect(root.querySelector('.error-state')?.textContent).toContain(
         'invariant violated',
     );
@@ -85,8 +85,50 @@ test('a malformed merge result (hunk past end of doc) shows an error state inste
             hunks: [makeHunk({ start_line: 0, end_line: 9, kind: 'Conflict' })],
         }),
     });
-    await expect(mountApp(root)).resolves.toBeUndefined();
+    await expect(mountApp(root)).resolves.not.toBeNull();
     expect(root.querySelector('.error-state')).not.toBeNull();
+});
+
+test('LOCAL/REMOTE panes show branch names from the backend when available', async () => {
+    mockBackend({
+        get_merge_input: () => ({
+            ...input,
+            localBranch: 'feature/pricing',
+            remoteBranch: 'main',
+        }),
+    });
+    await mountApp(root);
+    expect(root.querySelector('.tw-pane-local .tw-pane-sub')?.textContent).toBe(
+        '· feature/pricing',
+    );
+    expect(
+        root.querySelector('.tw-pane-remote .tw-pane-sub')?.textContent,
+    ).toBe('· main');
+});
+
+test("LOCAL falls back to 'HEAD' and REMOTE shows nothing when branch detection fails", async () => {
+    mockBackend(); // default fixture: no localBranch/remoteBranch
+    await mountApp(root);
+    expect(root.querySelector('.tw-pane-local .tw-pane-sub')?.textContent).toBe(
+        '· HEAD',
+    );
+    expect(
+        root.querySelector('.tw-pane-remote .tw-pane-sub')?.textContent,
+    ).toBe('');
+});
+
+test("notifyUpdateFound marks the version button's dot, however the caller learned about the update (not just an in-app click)", async () => {
+    mockBackend();
+    const app = await mountApp(root);
+    const versionButton =
+        root.querySelector<HTMLButtonElement>('.brand-version')!;
+    expect(versionButton.classList.contains('has-update')).toBe(false);
+
+    app.notifyUpdateFound(
+        createMockUpdate({ version: '0.2.0', currentVersion: '0.1.0' }),
+    );
+
+    expect(versionButton.classList.contains('has-update')).toBe(true);
 });
 
 test('Save with unresolved conflicts asks first; cancel does not save, confirm saves with force', async () => {
@@ -141,9 +183,6 @@ test('Save with everything resolved saves without asking and without force', asy
     expect(
         root.querySelector<HTMLButtonElement>('[title^="Next conflict"]')!
             .disabled,
-    ).toBe(true);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.disabled,
     ).toBe(true);
     root.querySelector<HTMLButtonElement>('#save-button')!.click();
     await vi.waitFor(() =>
@@ -333,7 +372,7 @@ test('outside a Tauri runtime, mountApp shows a preview banner and stub data ins
     expect(root.querySelector('.error-state')).toBeNull();
 });
 
-test('Auto-merge button resolves whitespace-only conflicts on click, never automatically on load', async () => {
+test('whitespace-only conflicts are auto-merged on load with no button needed', async () => {
     const whitespaceOnlyResult = {
         auto_merged_text: 'L \n',
         conflict_count: 1,
@@ -354,26 +393,10 @@ test('Auto-merge button resolves whitespace-only conflicts on click, never autom
     });
     await mountApp(root);
 
-    // Not run automatically on load: the conflict is still unresolved.
     expect(root.querySelector('#app-message')?.textContent).toBe(
-        '1 conflict remaining',
+        'All conflicts resolved',
     );
-
-    root.querySelector<HTMLButtonElement>('#auto-merge-button')!.click();
-    expect(root.querySelector('#app-message')?.textContent).toBe(
-        'Auto-merged 1 conflict',
-    );
-});
-
-test("Auto-merge button is disabled up front when there's nothing whitespace-only to resolve", async () => {
-    mockBackend(); // default fixture: local "L" vs remote "R" is a genuine conflict, not whitespace-only
-    await mountApp(root);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.disabled,
-    ).toBe(true);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.title,
-    ).toBe('No whitespace-only conflicts to auto-merge');
+    expect(root.querySelector('#auto-merge-button')).toBeNull();
 });
 
 test('windowTitleFor falls back to the bare app name', () => {

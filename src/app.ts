@@ -74,10 +74,21 @@ export function windowTitleFor(fileName: string): string {
  * Abort button stays usable in the error state so the user can always exit
  * the mergetool cleanly.
  */
+/**
+ * Returned by `mountApp` so a caller-driven update check (`main.ts`'s
+ * silent background check, surfaced via `wireUpdateUi`'s banner) can keep
+ * the toolbar's version-button dot in sync, exactly as an in-app
+ * `onCheckForUpdates` click already does — regardless of *how* the user
+ * was told about the update, the dot should show.
+ */
+export interface MountAppHandle {
+    notifyUpdateFound(update: UpdateInfo): void;
+}
+
 export async function mountApp(
     root: HTMLElement,
     options: MountAppOptions = {},
-): Promise<void> {
+): Promise<MountAppHandle> {
     root.innerHTML = '';
     root.classList.add('app');
 
@@ -96,12 +107,6 @@ export async function mountApp(
     const prevButton = button('‹', 'toolbar-button', 'Previous conflict (⌥⌘,)');
     const nextButton = button('›', 'toolbar-button', 'Next conflict (⌥⌘.)');
     const counter = el('span', 'conflict-counter', '');
-    const autoMergeButton = button(
-        'Auto-merge',
-        'toolbar-button',
-        'Resolve conflicts where both sides agree modulo whitespace',
-    );
-    autoMergeButton.id = 'auto-merge-button';
     const undoButton = iconButton(UNDO_ICON, 'toolbar-button', 'Undo (⌘Z)');
     const redoButton = iconButton(REDO_ICON, 'toolbar-button', 'Redo (⇧⌘Z)');
     undoButton.disabled = true;
@@ -124,7 +129,6 @@ export async function mountApp(
         prevButton,
         nextButton,
         counter,
-        autoMergeButton,
         undoButton,
         redoButton,
         el('span', 'toolbar-spacer'),
@@ -186,6 +190,13 @@ export async function mountApp(
     let busy = false;
     let foundUpdate: UpdateInfo | null = null;
 
+    /** Marks an update as found regardless of which path discovered it (an in-app check or the background check that shows its own banner). */
+    function notifyUpdateFound(update: UpdateInfo) {
+        foundUpdate = update;
+        versionButton.classList.add('has-update');
+    }
+    const handle: MountAppHandle = { notifyUpdateFound };
+
     abortButton.addEventListener('click', () => void onAbort());
     saveButton.addEventListener('click', () => void onSave());
 
@@ -205,7 +216,7 @@ export async function mountApp(
             input = await getMergeInput();
         } catch (err) {
             showError(`Failed to load merge input: ${String(err)}`);
-            return;
+            return handle;
         }
         try {
             mergeResult = await computeThreeWayMerge(
@@ -219,7 +230,7 @@ export async function mountApp(
             showError(
                 `Merge computation failed (internal error): ${String(err)}`,
             );
-            return;
+            return handle;
         }
     }
     const title = windowTitleFor(input.fileName);
@@ -234,6 +245,8 @@ export async function mountApp(
         view = createThreeWayView(body, input, mergeResult, {
             computeWordDiff: devMode ? undefined : computeWordDiff,
             onUpdate: refreshStatus,
+            localLabel: input.localBranch ?? undefined,
+            remoteLabel: input.remoteBranch ?? undefined,
             paneWidths: options.initialPaneWidths,
             onPaneWidthsChange: options.onPaneWidthsChange,
             onHistoryChange: ({ canUndo, canRedo }) => {
@@ -243,7 +256,7 @@ export async function mountApp(
         });
     } catch (err) {
         showError(`Could not display the merge: ${String(err)}`);
-        return;
+        return handle;
     }
     saveButton.disabled = false;
     setNavEnabled(true);
@@ -253,7 +266,6 @@ export async function mountApp(
 
     prevButton.addEventListener('click', () => navigate(-1));
     nextButton.addEventListener('click', () => navigate(1));
-    autoMergeButton.addEventListener('click', () => onAutoMerge());
     undoButton.addEventListener('click', () => view?.undo());
     redoButton.addEventListener('click', () => view?.redo());
     wordDiffToggle.addEventListener('click', () =>
@@ -309,26 +321,6 @@ export async function mountApp(
         if (index >= 0) view.pullHunk(index, side);
     }
 
-    /**
-     * Resolves every unresolved conflict where both sides agree modulo
-     * whitespace, leaving genuine disagreements untouched. Only runs on an
-     * explicit click — never automatically on load.
-     */
-    function onAutoMerge() {
-        if (!view) return;
-        const resolvedCount = view.autoMergeTrivial();
-        refreshStatus();
-        // Always say something: a silent no-op (the common case — most repos
-        // have few or no whitespace-only conflicts) reads as "the button is
-        // broken" otherwise.
-        setStatus(
-            resolvedCount > 0
-                ? `Auto-merged ${resolvedCount} conflict${resolvedCount === 1 ? '' : 's'}`
-                : 'No whitespace-only conflicts to auto-merge',
-            resolvedCount > 0 ? 'ok' : 'pending',
-        );
-    }
-
     /** Accept both sides for the conflict the result cursor is currently inside. */
     function acceptBoth() {
         if (!view) return;
@@ -349,20 +341,11 @@ export async function mountApp(
                 : unresolved === 0
                   ? 'All resolved'
                   : `Conflict ${position >= 0 ? position + 1 : '–'} of ${conflicts.length}`;
-        // Nothing left to jump between or auto-merge once every conflict is
-        // resolved — leaving them enabled with nothing to do (prev/next find
-        // no unresolved hunk to land on) reads as broken, not done.
+        // Nothing left to jump between once every conflict is resolved —
+        // leaving them enabled with nothing to do (prev/next find no
+        // unresolved hunk to land on) reads as broken, not done.
         prevButton.disabled = unresolved === 0;
         nextButton.disabled = unresolved === 0;
-        const canAutoMerge = unresolved > 0 && view.hasTrivialConflicts();
-        autoMergeButton.disabled = !canAutoMerge;
-        const autoMergeTitle = canAutoMerge
-            ? 'Resolve conflicts where both sides agree modulo whitespace'
-            : unresolved === 0
-              ? 'All conflicts resolved'
-              : 'No whitespace-only conflicts to auto-merge';
-        autoMergeButton.title = autoMergeTitle;
-        autoMergeButton.setAttribute('aria-label', autoMergeTitle);
         setStatus(
             unresolved === 0
                 ? conflicts.length === 0
@@ -462,7 +445,6 @@ export async function mountApp(
     function setNavEnabled(enabled: boolean) {
         prevButton.disabled = !enabled;
         nextButton.disabled = !enabled;
-        autoMergeButton.disabled = !enabled;
         wordDiffToggle.disabled = !enabled;
     }
 
@@ -489,13 +471,14 @@ export async function mountApp(
         const update = await checkForUpdate();
         versionButton.disabled = false;
         if (update) {
-            foundUpdate = update;
-            versionButton.classList.add('has-update');
+            notifyUpdateFound(update);
             showUpdateModal(root, update);
         } else {
             setStatus(`Up to date (v${packageJson.version})`, 'ok');
         }
     }
+
+    return handle;
 }
 
 /**
