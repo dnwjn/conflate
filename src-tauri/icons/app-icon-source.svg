@@ -1,0 +1,16 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="squircle"><rect x="0" y="0" width="1024" height="1024" rx="224" ry="224"/></clipPath>
+    <clipPath id="lens">
+      <circle cx="422" cy="512" r="170"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)"><rect width="1024" height="1024" fill="#1c1c1e"/></g>
+
+  <!-- two circles fusing: outlines + solid overlap -->
+  <circle cx="422" cy="512" r="170" fill="none" stroke="#0a84ff" stroke-width="36"/>
+  <circle cx="602" cy="512" r="170" fill="none" stroke="#0a84ff" stroke-width="36"/>
+  <g clip-path="url(#lens)">
+    <circle cx="602" cy="512" r="170" fill="#0a84ff"/>
+  </g>
+</svg>
