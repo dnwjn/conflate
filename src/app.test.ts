@@ -1,7 +1,8 @@
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { mountApp, windowTitleFor } from './app';
+import { mountApp, showUpdateModal, windowTitleFor, wireUpdateUi } from './app';
 import { makeHunk } from './merge/testHunks';
+import { createMockUpdate } from './update';
 
 const input = {
     base: 'a\n',
@@ -378,4 +379,124 @@ test("Auto-merge button is disabled up front when there's nothing whitespace-onl
 test('windowTitleFor falls back to the bare app name', () => {
     expect(windowTitleFor('')).toBe('Conflate');
     expect(windowTitleFor('a.rs')).toBe('a.rs — Conflate');
+});
+
+test('wireUpdateUi stays silent when the found version was already dismissed', () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    wireUpdateUi(root, update, {
+        skippedVersion: '0.2.0',
+        onSkipVersion: () => {},
+    });
+    expect(root.querySelector('.update-banner')).toBeNull();
+});
+
+test('wireUpdateUi shows a dismissible banner for a newly-found version', () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    let skipped: string | null = null;
+    wireUpdateUi(root, update, {
+        skippedVersion: null,
+        onSkipVersion: (v) => {
+            skipped = v;
+        },
+    });
+    const banner = root.querySelector('.update-banner');
+    expect(banner?.textContent).toContain('0.2.0');
+
+    root.querySelector<HTMLButtonElement>('[data-action="dismiss"]')!.click();
+    expect(root.querySelector('.update-banner')).toBeNull();
+    expect(skipped).toBe('0.2.0');
+});
+
+test("wireUpdateUi's View button opens the update modal", () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    wireUpdateUi(root, update, {
+        skippedVersion: null,
+        onSkipVersion: () => {},
+    });
+    root.querySelector<HTMLButtonElement>('[data-action="view"]')!.click();
+    expect(root.querySelector('.modal-backdrop')).not.toBeNull();
+    expect(root.querySelector('.modal-title')?.textContent).toBe(
+        'Update available',
+    );
+});
+
+test('showUpdateModal walks Update -> Downloading -> Restart to Update, then calls the injected restart', async () => {
+    vi.useFakeTimers();
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: 'Fixed things.',
+    });
+    let restarted = false;
+    showUpdateModal(root, update, {
+        restart: async () => {
+            restarted = true;
+        },
+    });
+
+    expect(root.querySelector('.modal-body')?.textContent).toContain('0.1.0');
+    expect(root.querySelector('.modal-body')?.textContent).toContain('0.2.0');
+    expect(root.querySelector('.modal-body')?.textContent).toContain(
+        'Fixed things.',
+    );
+
+    const actionButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="update"]',
+    )!;
+    expect(actionButton.textContent).toBe('Update');
+    actionButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(actionButton.disabled).toBe(true);
+    expect(actionButton.textContent).toContain('Downloading');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(actionButton.disabled).toBe(false);
+    expect(actionButton.textContent).toBe('Restart to Update');
+
+    actionButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarted).toBe(true);
+    vi.useRealTimers();
+});
+
+test('showUpdateModal recovers from a failed download instead of getting stuck on "Downloading..."', async () => {
+    const update = {
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: 'Notes',
+        downloadAndInstall: vi
+            .fn()
+            .mockRejectedValue(new Error('network down')),
+    };
+    showUpdateModal(root, update);
+
+    const actionButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="update"]',
+    )!;
+    const laterButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="later"]',
+    )!;
+    actionButton.click();
+    expect(actionButton.disabled).toBe(true);
+    expect(laterButton.disabled).toBe(true);
+
+    await vi.waitFor(() => expect(actionButton.disabled).toBe(false));
+
+    expect(laterButton.disabled).toBe(false);
+    expect(root.querySelector('.modal-error')?.textContent).toContain(
+        'network down',
+    );
+
+    // The modal must still be dismissible, and retrying must be possible.
+    laterButton.click();
+    expect(root.querySelector('.modal-backdrop')).toBeNull();
 });

@@ -7,7 +7,7 @@
  * back to the live `@media (prefers-color-scheme: dark)` query below, which
  * is guarded with `:not([data-theme])` so it only ever engages in that
  * state; a manual override reaches the browser as its own plain
- * `:root[data-theme="…"]` rule further down, applying regardless of the
+ * `:root[data-theme="..."]` rule further down, applying regardless of the
  * live system preference in either direction. The dark palette therefore
  * appears twice — once gated by the media query (system, OS dark), once
  * ungated (manual "dark" override, any OS appearance) — because a selector
@@ -883,4 +883,82 @@ button:focus-visible {
 	font-size: 11px;
 	line-height: 1.5;
 	text-align: center;
+}
+
+/* ---- Self-updater (toolbar version label, banner, modal extras) --------- */
+
+.brand-version {
+	position: relative;
+	height: auto;
+	min-width: 0;
+	padding: 1px 6px;
+	border: none;
+	background: none;
+	color: var(--muted);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.brand-version:not(:disabled):hover {
+	color: var(--text);
+}
+
+.brand-version.has-update::after {
+	content: '';
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--brand);
+}
+
+.update-banner {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 12px;
+	font-size: 12px;
+	color: var(--conflict-ink);
+	background: var(--conflict-bg);
+	border-bottom: 1px solid var(--conflict-border);
+}
+
+.update-banner-actions {
+	display: flex;
+	gap: 6px;
+	margin-left: auto;
+}
+
+.btn-small {
+	height: 22px;
+	padding: 0 10px;
+	font-size: 12px;
+}
+
+.update-notes {
+	color: var(--text);
+}
+
+.update-progress {
+	height: 6px;
+	margin-bottom: 18px;
+	border-radius: 3px;
+	background: var(--panel);
+	overflow: hidden;
+}
+
+.update-progress-bar {
+	height: 100%;
+	width: 0;
+	background: var(--brand);
+	transition: width 0.2s ease;
+}
+
+.modal-error {
+	margin: -8px 0 18px;
+	color: var(--danger);
+	font-size: 12px;
 }

@@ -1,3 +1,4 @@
+import packageJson from '../package.json';
 import type { MergeInputPayload, ThreeWayMergeResult } from './bindings';
 import {
     devStubMergeInput,
@@ -21,6 +22,15 @@ import {
     themeIndicatorIcon,
     themeIndicatorLabel,
 } from './theme';
+import {
+    checkForUpdate,
+    downloadAndInstallUpdate,
+    restartToApplyUpdate,
+    type UpdateInfo,
+} from './update';
+
+/** Matches `endpoints`/the release page in `.github/workflows/release.yml` and `tauri.conf.json`. */
+const RELEASES_URL = 'https://github.com/dnwjn/conflate/releases';
 
 /**
  * Optional theming hook (Task 12). When omitted, the toolbar still renders
@@ -73,9 +83,15 @@ export async function mountApp(
 
     const toolbar = el('header', 'toolbar');
     const brand = el('div', 'toolbar-brand');
+    const versionButton = button(
+        `v${packageJson.version}`,
+        'brand-version',
+        'Check for updates',
+    );
     brand.append(
         el('span', 'brand-mark', '◆'),
         el('span', 'brand-name', 'Conflate'),
+        versionButton,
     );
     const prevButton = button('‹', 'toolbar-button', 'Previous conflict (⌥⌘,)');
     const nextButton = button('›', 'toolbar-button', 'Next conflict (⌥⌘.)');
@@ -147,7 +163,7 @@ export async function mountApp(
     );
     const body = el('main', 'merge-host');
     const statusBar = el('footer', 'statusbar');
-    const statusText = el('span', 'status-text', 'Loading merge input…');
+    const statusText = el('span', 'status-text', 'Loading merge input...');
     statusText.id = 'app-message';
     const abortButton = button('Abort', 'btn btn-secondary');
     abortButton.id = 'abort-button';
@@ -168,6 +184,7 @@ export async function mountApp(
 
     let view: ThreeWayView | null = null;
     let busy = false;
+    let foundUpdate: UpdateInfo | null = null;
 
     abortButton.addEventListener('click', () => void onAbort());
     saveButton.addEventListener('click', () => void onSave());
@@ -243,6 +260,7 @@ export async function mountApp(
         setWordDiffEnabled(!wordDiffToggle.classList.contains('is-on')),
     );
     shortcutsButton.addEventListener('click', () => showShortcutsHelp(root));
+    versionButton.addEventListener('click', () => void onCheckForUpdates());
     // Not torn down: the app occupies its window for the whole merge-tool
     // process lifetime (same assumption the ad-hoc listener this replaces
     // made), so there is no unmount point to call the returned cleanup from.
@@ -378,7 +396,7 @@ export async function mountApp(
         }
         busy = true;
         setButtonsDisabled(true);
-        setStatus('Saving…', 'pending');
+        setStatus('Saving...', 'pending');
         try {
             await saveResult(
                 view.resultView.state.doc.toString(),
@@ -451,6 +469,32 @@ export async function mountApp(
     function setButtonsDisabled(disabled: boolean) {
         abortButton.disabled = disabled;
         saveButton.disabled = disabled || !view;
+    }
+
+    /**
+     * An explicit, non-silent check: unlike `main.ts`'s background launch
+     * check (which stays quiet unless it finds something), this always
+     * says something, even "up to date". If this same `mountApp` instance
+     * already found an update via an earlier click, reopen it instead of
+     * checking again.
+     */
+    async function onCheckForUpdates() {
+        if (devMode) return;
+        if (foundUpdate) {
+            showUpdateModal(root, foundUpdate);
+            return;
+        }
+        versionButton.disabled = true;
+        setStatus('Checking for updates...', 'pending');
+        const update = await checkForUpdate();
+        versionButton.disabled = false;
+        if (update) {
+            foundUpdate = update;
+            versionButton.classList.add('has-update');
+            showUpdateModal(root, update);
+        } else {
+            setStatus(`Up to date (v${packageJson.version})`, 'ok');
+        }
     }
 }
 
@@ -564,6 +608,183 @@ export function showShortcutsHelp(root: HTMLElement): void {
     close.addEventListener('click', finish);
     backdrop.addEventListener('mousedown', (event) => {
         if (event.target === backdrop) finish();
+    });
+}
+
+/**
+ * Non-modal, dismissible notice for a background-found update (see
+ * `main.ts`'s silent launch check) — reuses `.dev-banner`'s full-width-strip
+ * look rather than inventing new chrome. Dismissing persists
+ * `skippedVersion` via `onSkipVersion` so the same version doesn't reappear
+ * every launch; "View" opens the full `showUpdateModal` dialog.
+ */
+export function wireUpdateUi(
+    root: HTMLElement,
+    update: UpdateInfo,
+    options: {
+        skippedVersion: string | null;
+        onSkipVersion: (version: string) => void;
+    },
+): void {
+    if (update.version === options.skippedVersion) return;
+
+    const banner = el('div', 'update-banner');
+    banner.append(
+        el(
+            'span',
+            'update-banner-text',
+            `Conflate v${update.version} is available.`,
+        ),
+    );
+    const actions = el('span', 'update-banner-actions');
+    const view = button('View', 'btn btn-primary btn-small');
+    view.dataset.action = 'view';
+    const dismiss = button('Dismiss', 'btn btn-secondary btn-small');
+    dismiss.dataset.action = 'dismiss';
+    actions.append(view, dismiss);
+    banner.append(actions);
+
+    view.addEventListener('click', () => {
+        banner.remove();
+        showUpdateModal(root, update);
+    });
+    dismiss.addEventListener('click', () => {
+        banner.remove();
+        options.onSkipVersion(update.version);
+    });
+
+    root.prepend(banner);
+}
+
+/**
+ * The update dialog: version diff, truncated release notes with a link to
+ * the full GitHub release, a download progress bar, and one action button
+ * cycling `Update` -> `Downloading... NN%` (disabled) -> `Restart to Update`.
+ * Reuses the `.modal-backdrop`/`.modal-card` look already established by
+ * `confirmDialog`/`showShortcutsHelp` rather than inventing new chrome.
+ */
+export function showUpdateModal(
+    root: HTMLElement,
+    update: UpdateInfo,
+    options: { restart?: () => Promise<void> } = {},
+): void {
+    const restart = options.restart ?? restartToApplyUpdate;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const backdrop = el('div', 'modal-backdrop');
+    const card = el('div', 'modal-card');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+
+    const title = el('h2', 'modal-title', 'Update available');
+    const body = el('div', 'modal-body');
+    body.append(
+        el(
+            'p',
+            undefined,
+            `Conflate ${update.currentVersion} → ${update.version}`,
+        ),
+    );
+    if (update.body) {
+        const notes = update.body.trim();
+        const truncated =
+            notes.length > 180 ? `${notes.slice(0, 180).trimEnd()}...` : notes;
+        body.append(el('p', 'update-notes', truncated));
+    }
+    const notesLink = document.createElement('a');
+    notesLink.href = `${RELEASES_URL}/tag/v${update.version}`;
+    notesLink.textContent = 'Read full release notes';
+    notesLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        void import('@tauri-apps/plugin-opener')
+            .then(({ openUrl }) => openUrl(notesLink.href))
+            .catch(() => {
+                // No Tauri runtime (e.g. dev preview) — nothing to open with.
+            });
+    });
+    body.append(notesLink);
+
+    const progress = el('div', 'update-progress');
+    const progressBar = el('div', 'update-progress-bar');
+    progress.append(progressBar);
+    progress.style.display = 'none';
+    const errorText = el('p', 'modal-error');
+    errorText.style.display = 'none';
+
+    const actions = el('div', 'modal-actions');
+    const later = button('Later', 'btn btn-secondary');
+    later.dataset.action = 'later';
+    const update_ = button('Update', 'btn btn-primary');
+    update_.dataset.action = 'update';
+    actions.append(later, update_);
+
+    card.append(title, body, progress, errorText, actions);
+    backdrop.appendChild(card);
+    root.appendChild(backdrop);
+    update_.focus();
+
+    let phase: 'idle' | 'downloading' | 'ready' | 'error' = 'idle';
+
+    const finish = () => {
+        document.removeEventListener('keydown', onKey, true);
+        backdrop.remove();
+        previousFocus?.focus?.();
+    };
+    const onKey = (event: KeyboardEvent) => {
+        if (event.key === 'Escape' && phase !== 'downloading') {
+            event.preventDefault();
+            event.stopPropagation();
+            finish();
+        }
+    };
+    document.addEventListener('keydown', onKey, true);
+    later.addEventListener('click', () => {
+        if (phase !== 'downloading') finish();
+    });
+    backdrop.addEventListener('mousedown', (event) => {
+        if (event.target === backdrop && phase !== 'downloading') finish();
+    });
+
+    update_.addEventListener('click', () => {
+        if (phase === 'idle' || phase === 'error') {
+            phase = 'downloading';
+            update_.disabled = true;
+            later.disabled = true;
+            update_.textContent = 'Downloading...';
+            errorText.style.display = 'none';
+            progress.style.display = '';
+            downloadAndInstallUpdate(update, (p) => {
+                if (p.phase === 'downloading') {
+                    const percent =
+                        p.total && p.total > 0
+                            ? Math.round((p.downloaded / p.total) * 100)
+                            : null;
+                    progressBar.style.width = `${percent ?? 0}%`;
+                    update_.textContent =
+                        percent === null
+                            ? 'Downloading...'
+                            : `Downloading... ${percent}%`;
+                } else {
+                    phase = 'ready';
+                    update_.disabled = false;
+                    later.disabled = false;
+                    update_.textContent = 'Restart to Update';
+                    progressBar.style.width = '100%';
+                }
+            }).catch((err) => {
+                // A failed download/install must never leave the dialog
+                // stuck mid-flight with no way to close it — fall back to
+                // a retryable error state instead of an unhandled rejection.
+                phase = 'error';
+                update_.disabled = false;
+                later.disabled = false;
+                update_.textContent = 'Retry';
+                progress.style.display = 'none';
+                errorText.style.display = '';
+                errorText.textContent = `Download failed: ${String(err)}`;
+            });
+        } else if (phase === 'ready') {
+            void restart();
+        }
     });
 }
 

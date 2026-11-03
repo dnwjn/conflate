@@ -1,14 +1,16 @@
-import { mountApp } from './app';
+import { mountApp, wireUpdateUi } from './app';
 import {
     DEFAULT_PREFS,
     loadPrefs,
     type Prefs,
     savePrefPaneWidths,
+    savePrefSkippedUpdateVersion,
     savePrefTheme,
     savePrefWindowSize,
     toLogicalWindowSize,
 } from './prefs';
 import { applyThemeOverride } from './theme';
+import { checkForUpdate } from './update';
 
 /**
  * Loads persisted prefs (`prefs.json`, via `tauri-plugin-store`) before the
@@ -85,6 +87,26 @@ function watchWindowSize(
         });
 }
 
+/**
+ * Checks for an update ~3s after the window loads, surfacing it only if one
+ * was actually found, so a user isn't shown "you're up to date" noise on
+ * every run. Never blocks or interrupts the merge flow: any failure (no
+ * network, no Tauri runtime, manifest/auth failure) is swallowed by
+ * `checkForUpdate` itself.
+ */
+function scheduleBackgroundUpdateCheck(
+    root: HTMLElement,
+    skippedVersion: Prefs['skippedUpdateVersion'],
+    onSkipVersion: (version: string) => void,
+): void {
+    setTimeout(() => {
+        void checkForUpdate().then((update) => {
+            if (update)
+                wireUpdateUi(root, update, { skippedVersion, onSkipVersion });
+        });
+    }, 3000);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     void (async () => {
         const root = document.querySelector<HTMLElement>('#app');
@@ -115,5 +137,13 @@ window.addEventListener('DOMContentLoaded', () => {
                 if (store) void savePrefPaneWidths(store, widths);
             },
         });
+
+        scheduleBackgroundUpdateCheck(
+            root,
+            prefs.skippedUpdateVersion,
+            (version) => {
+                if (store) void savePrefSkippedUpdateVersion(store, version);
+            },
+        );
     })();
 });

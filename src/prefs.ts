@@ -25,6 +25,8 @@ export interface Prefs {
     theme: ThemeOverride;
     windowSize: WindowSize | null;
     paneWidths: PaneWidths | null;
+    /** Version string the user dismissed an update banner for, so it doesn't reappear every launch. */
+    skippedUpdateVersion: string | null;
 }
 
 export const PREFS_FILE = 'prefs.json';
@@ -33,6 +35,7 @@ export const DEFAULT_PREFS: Prefs = {
     theme: 'system',
     windowSize: null,
     paneWidths: null,
+    skippedUpdateVersion: null,
 };
 
 function isThemeOverride(value: unknown): value is ThemeOverride {
@@ -61,6 +64,10 @@ function isPaneWidths(value: unknown): value is PaneWidths {
     );
 }
 
+function isSkippedUpdateVersion(value: unknown): value is string | null {
+    return value === null || typeof value === 'string';
+}
+
 /**
  * Sanitizes whatever `prefs.json` actually contained against corruption, an
  * old format, or a key simply missing, falling back to defaults field by
@@ -72,6 +79,7 @@ export function sanitizePrefs(raw: {
     theme?: unknown;
     windowSize?: unknown;
     paneWidths?: unknown;
+    skippedUpdateVersion?: unknown;
 }): Prefs {
     return {
         theme: isThemeOverride(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
@@ -81,6 +89,9 @@ export function sanitizePrefs(raw: {
         paneWidths: isPaneWidths(raw.paneWidths)
             ? raw.paneWidths
             : DEFAULT_PREFS.paneWidths,
+        skippedUpdateVersion: isSkippedUpdateVersion(raw.skippedUpdateVersion)
+            ? raw.skippedUpdateVersion
+            : DEFAULT_PREFS.skippedUpdateVersion,
     };
 }
 
@@ -95,7 +106,18 @@ export async function loadPrefs(): Promise<{ prefs: Prefs; store: Store }> {
     const theme = await store.get<ThemeOverride>('theme');
     const windowSize = await store.get<WindowSize>('windowSize');
     const paneWidths = await store.get<PaneWidths>('paneWidths');
-    return { store, prefs: sanitizePrefs({ theme, windowSize, paneWidths }) };
+    const skippedUpdateVersion = await store.get<string>(
+        'skippedUpdateVersion',
+    );
+    return {
+        store,
+        prefs: sanitizePrefs({
+            theme,
+            windowSize,
+            paneWidths,
+            skippedUpdateVersion,
+        }),
+    };
 }
 
 export async function savePrefTheme(
@@ -135,4 +157,11 @@ export async function savePrefPaneWidths(
     widths: PaneWidths,
 ): Promise<void> {
     await store.set('paneWidths', widths);
+}
+
+export async function savePrefSkippedUpdateVersion(
+    store: Store,
+    version: string,
+): Promise<void> {
+    await store.set('skippedUpdateVersion', version);
 }
