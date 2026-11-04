@@ -1,6 +1,6 @@
 [package]
 name = "conflate"
-version = "0.1.0"
+version = "0.1.1"
 description = "Conflate: a desktop merge-conflict tool"
 authors = ["dnwjn"]
 edition = "2024"
