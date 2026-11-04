@@ -124,8 +124,11 @@ export async function mountApp(
         'toolbar-button',
         'Keyboard shortcuts (?)',
     );
+    const filePathLabel = el('span', 'toolbar-filepath', '');
     toolbar.append(
         brand,
+        el('span', 'toolbar-divider'),
+        filePathLabel,
         el('span', 'toolbar-divider'),
         prevButton,
         nextButton,
@@ -236,6 +239,8 @@ export async function mountApp(
     }
     const title = windowTitleFor(input.fileName);
     document.title = title;
+    filePathLabel.textContent = input.fullPath;
+    filePathLabel.title = input.fullPath;
     try {
         // Best-effort: a missing title must never block the merge itself.
         await options.setWindowTitle?.(title);

@@ -27,6 +27,12 @@ pub struct MergeInputPayload {
     /// window title — so a multi-file `git mergetool` run shows which file
     /// is currently open.
     pub file_name: String,
+    /// Absolute, best-effort path of the `merged` file (the one being
+    /// resolved), for display when the user wants to confirm exactly which
+    /// file on disk this is. Resolved against the process cwd when `merged`
+    /// was passed as a relative path (git's own convention); shown as-is if
+    /// that cwd lookup fails.
+    pub full_path: String,
     /// Best-effort branch labels for the LOCAL/REMOTE panes (see
     /// `git_labels::detect_branch_labels`). `None` when they can't be
     /// determined — the frontend falls back to its existing "HEAD"/no-label
@@ -120,6 +126,20 @@ fn file_name_for(merged: &Path) -> String {
         .unwrap_or_else(|| merged.display().to_string())
 }
 
+/// Best-effort absolute path of `merged`: used as-is if already absolute,
+/// otherwise joined onto the process's current directory (mirrors how
+/// `git mergetool` invokes conflate — `merged` is relative to the repo root,
+/// which is the cwd). Never touches the filesystem (no `canonicalize`), so it
+/// works even though `merged` may not exist yet.
+fn full_path_for(merged: &Path) -> String {
+    if merged.is_absolute() {
+        return merged.display().to_string();
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(merged).display().to_string())
+        .unwrap_or_else(|_| merged.display().to_string())
+}
+
 /// Reads and validates local/remote (required) and base (optional) into a
 /// `LoadedInput`. A missing base path means an add/add conflict, not an
 /// error: `base` is `None`. Any read failure or non-UTF-8 (binary) content is
@@ -181,6 +201,7 @@ pub fn load_merge_input(
             remote: normalize_crlf(remote_content),
             language_hint,
             file_name: file_name_for(merged),
+            full_path: full_path_for(merged),
             // Filled in by `main.rs` right after this returns: it needs the
             // process's actual cwd, which this function has no reason to
             // depend on otherwise (keeps this purely file-reading, and keeps
@@ -490,6 +511,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write_inputs(dir.path(), None, b"l\n", b"r\n");
         assert_eq!(load(dir.path()).unwrap().payload.file_name, "pricing.rs");
+    }
+
+    #[test]
+    fn payload_carries_the_merged_files_full_path() {
+        let dir = tempfile::tempdir().unwrap();
+        write_inputs(dir.path(), None, b"l\n", b"r\n");
+        let expected = dir.path().join("sub").join("pricing.rs");
+        assert_eq!(
+            load(dir.path()).unwrap().payload.full_path,
+            expected.display().to_string()
+        );
     }
 
     #[test]

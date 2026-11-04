@@ -46,6 +46,14 @@
 	--conflict-line-bg: rgba(251, 229, 199, 0.5);
 	--auto-line-bg: rgba(211, 239, 221, 0.5);
 
+	/* A resolved/auto-merged hunk whose live text no longer matches any of
+	 * its known source texts (hand-edited/pasted into since) — neutral
+	 * blue-grey, distinct from the error-ish yellow and success-ish green. */
+	--edited-bg: #eef1f8;
+	--edited-border: #6b7cad;
+	--edited-ink: #39456e;
+	--edited-line-bg: rgba(222, 227, 242, 0.5);
+
 	--live-local-bg: rgba(37, 99, 235, 0.08);
 	--live-remote-bg: rgba(147, 51, 234, 0.08);
 	--word-local-bg: rgba(37, 99, 235, 0.24);
@@ -99,6 +107,11 @@
 		--conflict-line-bg: rgba(73, 49, 11, 0.5);
 		--auto-line-bg: rgba(17, 53, 23, 0.5);
 
+		--edited-bg: #1c2333;
+		--edited-border: #6c80c2;
+		--edited-ink: #a9b6e8;
+		--edited-line-bg: rgba(42, 52, 82, 0.5);
+
 		--live-local-bg: rgba(88, 166, 255, 0.1);
 		--live-remote-bg: rgba(199, 146, 234, 0.1);
 		--word-local-bg: rgba(88, 166, 255, 0.3);
@@ -145,6 +158,11 @@
 	--auto-ink: #56d364;
 	--conflict-line-bg: rgba(73, 49, 11, 0.5);
 	--auto-line-bg: rgba(17, 53, 23, 0.5);
+
+	--edited-bg: #1c2333;
+	--edited-border: #6c80c2;
+	--edited-ink: #a9b6e8;
+	--edited-line-bg: rgba(42, 52, 82, 0.5);
 
 	--live-local-bg: rgba(88, 166, 255, 0.1);
 	--live-remote-bg: rgba(199, 146, 234, 0.1);
@@ -293,6 +311,16 @@ button:focus-visible {
 	flex: 1;
 }
 
+.toolbar-filepath {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	font-size: 12px;
+	color: var(--muted);
+}
+
 .toolbar-button,
 .toolbar-toggle {
 	display: inline-flex;
@@ -364,7 +392,9 @@ button:focus-visible {
 }
 
 .tw-divider {
-	flex: 0 0 5px;
+	flex: 0 0 28px;
+	display: flex;
+	flex-direction: column;
 	cursor: col-resize;
 	background: transparent;
 	position: relative;
@@ -373,6 +403,43 @@ button:focus-visible {
 .tw-divider:hover,
 .tw-divider:active {
 	background: var(--brand);
+}
+
+.tw-divider-spacer {
+	flex: 0 0 30px;
+}
+
+.tw-divider-body {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+}
+
+.tw-connector-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.tw-connector {
+	stroke-width: 1;
+	cursor: pointer;
+	pointer-events: auto;
+	transition: opacity 0.1s;
+}
+
+.tw-connector:hover {
+	opacity: 0.7;
+}
+
+.tw-connector-conflict {
+	fill: var(--conflict-line-bg);
+	stroke: var(--conflict-border);
+}
+
+.tw-connector-auto {
+	fill: var(--auto-line-bg);
+	stroke: var(--auto-border);
 }
 
 .tw-pane-local,
@@ -537,6 +604,10 @@ button:focus-visible {
 	--hunk-border: var(--auto-border);
 }
 
+.tw-root .cm-hunk-edited {
+	--hunk-border: var(--edited-border);
+}
+
 .tw-root .cm-line.cm-hunk-conflict {
 	background: var(--conflict-line-bg);
 }
@@ -544,6 +615,10 @@ button:focus-visible {
 .tw-pane-result .cm-line.cm-hunk-auto,
 .tw-pane-result .cm-line.cm-hunk-resolved {
 	background: var(--auto-line-bg);
+}
+
+.tw-pane-result .cm-line.cm-hunk-edited {
+	background: var(--edited-line-bg);
 }
 
 .tw-root .cm-line.cm-hunk-first {
@@ -699,6 +774,11 @@ button:focus-visible {
 	border: 1px solid var(--auto-border);
 	color: var(--auto-ink);
 	background: var(--bg);
+}
+
+.cm-hunk-pill-edited {
+	border-color: var(--edited-border);
+	color: var(--edited-ink);
 }
 
 /* -- Syntax tokens (classHighlighter) -- */

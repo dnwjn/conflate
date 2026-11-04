@@ -10,6 +10,7 @@ const input = {
     remote: 'R\n',
     languageHint: null,
     fileName: 'pricing.rs',
+    fullPath: '/repo/sub/pricing.rs',
 };
 const mergeResult = {
     auto_merged_text: 'L\n',
@@ -238,6 +239,7 @@ const deleteVsModifyInput = {
     remote: 'a\nB\nc\nD2\n',
     languageHint: null,
     fileName: 'doc.txt',
+    fullPath: '/repo/doc.txt',
 };
 const deleteVsModifyResult = {
     auto_merged_text: 'a\nc\nD1\n',
@@ -345,6 +347,14 @@ test('the window title names the file being merged', async () => {
     await mountApp(root, { setWindowTitle });
     expect(setWindowTitle).toHaveBeenCalledWith('pricing.rs — Conflate');
     expect(document.title).toBe('pricing.rs — Conflate');
+});
+
+test('the toolbar shows the full path of the file being merged', async () => {
+    mockBackend();
+    await mountApp(root, {});
+    const label = root.querySelector<HTMLElement>('.toolbar-filepath')!;
+    expect(label.textContent).toBe(input.fullPath);
+    expect(label.title).toBe(input.fullPath);
 });
 
 test('a failing native setTitle does not break loading the merge', async () => {

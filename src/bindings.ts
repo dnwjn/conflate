@@ -133,6 +133,14 @@ export type MergeInputPayload_Deserialize = {
 	 */
 	fileName: string,
 	/**
+	 *  Absolute, best-effort path of the `merged` file (the one being
+	 *  resolved), for display when the user wants to confirm exactly which
+	 *  file on disk this is. Resolved against the process cwd when `merged`
+	 *  was passed as a relative path (git's own convention); shown as-is if
+	 *  that cwd lookup fails.
+	 */
+	fullPath: string,
+	/**
 	 *  Best-effort branch labels for the LOCAL/REMOTE panes (see
 	 *  `git_labels::detect_branch_labels`). `None` when they can't be
 	 *  determined — the frontend falls back to its existing "HEAD"/no-label
@@ -161,6 +169,14 @@ export type MergeInputPayload_Serialize = {
 	 *  is currently open.
 	 */
 	fileName: string,
+	/**
+	 *  Absolute, best-effort path of the `merged` file (the one being
+	 *  resolved), for display when the user wants to confirm exactly which
+	 *  file on disk this is. Resolved against the process cwd when `merged`
+	 *  was passed as a relative path (git's own convention); shown as-is if
+	 *  that cwd lookup fails.
+	 */
+	fullPath: string,
 	/**
 	 *  Best-effort branch labels for the LOCAL/REMOTE panes (see
 	 *  `git_labels::detect_branch_labels`). `None` when they can't be
