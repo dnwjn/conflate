@@ -279,8 +279,7 @@ button:focus-visible {
 }
 
 .brand-mark {
-	color: var(--brand);
-	font-size: 15px;
+	display: flex;
 }
 
 .toolbar-divider {

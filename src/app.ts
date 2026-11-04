@@ -1,4 +1,7 @@
 import packageJson from '../package.json';
+import brandMarkIcon from './assets/icons/brand-mark.svg?raw';
+import redoIcon from './assets/icons/redo.svg?raw';
+import undoIcon from './assets/icons/undo.svg?raw';
 import type { MergeInputPayload, ThreeWayMergeResult } from './bindings';
 import {
     devStubMergeInput,
@@ -59,10 +62,6 @@ export interface MountAppOptions {
  * multi-file `git mergetool` run shows which file is open (per the design
  * reference's "filename in title bar").
  */
-const ICON_SIZE = 14;
-const UNDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`;
-const REDO_ICON = `<svg width="${ICON_SIZE}" height="${ICON_SIZE}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>`;
-
 export function windowTitleFor(fileName: string): string {
     return fileName ? `${fileName} — Conflate` : 'Conflate';
 }
@@ -99,16 +98,18 @@ export async function mountApp(
         'brand-version',
         'Check for updates',
     );
+    const brandMark = el('span', 'brand-mark');
+    brandMark.innerHTML = brandMarkIcon;
     brand.append(
-        el('span', 'brand-mark', '◆'),
+        brandMark,
         el('span', 'brand-name', 'Conflate'),
         versionButton,
     );
     const prevButton = button('‹', 'toolbar-button', 'Previous conflict (⌥⌘,)');
     const nextButton = button('›', 'toolbar-button', 'Next conflict (⌥⌘.)');
     const counter = el('span', 'conflict-counter', '');
-    const undoButton = iconButton(UNDO_ICON, 'toolbar-button', 'Undo (⌘Z)');
-    const redoButton = iconButton(REDO_ICON, 'toolbar-button', 'Redo (⇧⌘Z)');
+    const undoButton = iconButton(undoIcon, 'toolbar-button', 'Undo (⌘Z)');
+    const redoButton = iconButton(redoIcon, 'toolbar-button', 'Redo (⇧⌘Z)');
     undoButton.disabled = true;
     redoButton.disabled = true;
     const wordDiffToggle = button(
