@@ -9,8 +9,20 @@ function threeHunkModel(): ConflictModel {
     return new ConflictModel(
         [
             makeHunk({ start_line: 0, end_line: 0, kind: 'LocalOnly' }),
-            makeHunk({ start_line: 1, end_line: 1, kind: 'Conflict' }),
-            makeHunk({ start_line: 2, end_line: 2, kind: 'Conflict' }),
+            makeHunk({
+                start_line: 1,
+                end_line: 1,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
+            makeHunk({
+                start_line: 2,
+                end_line: 2,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
         ],
         doc,
     );
@@ -54,9 +66,21 @@ test('prevConflict returns the previous unresolved Conflict hunk, wrapping to th
 function zeroWidthConflictModel() {
     const hunks = [
         makeHunk({ start_line: 0, end_line: 1, kind: 'Unchanged' }),
-        makeHunk({ start_line: 1, end_line: 1, kind: 'Conflict' }),
+        makeHunk({
+            start_line: 1,
+            end_line: 1,
+            kind: 'Conflict',
+            local_text: 'L\n',
+            remote_text: 'R\n',
+        }),
         makeHunk({ start_line: 1, end_line: 2, kind: 'Unchanged' }),
-        makeHunk({ start_line: 2, end_line: 3, kind: 'Conflict' }),
+        makeHunk({
+            start_line: 2,
+            end_line: 3,
+            kind: 'Conflict',
+            local_text: 'L\n',
+            remote_text: 'R\n',
+        }),
     ];
     return {
         hunks,
@@ -85,8 +109,20 @@ test('hunkIndexAt still prefers the zero-width conflict once resolved (it stays 
 
 test('hunkIndexAt prefers an UNRESOLVED conflict when several conflicts share the offset', () => {
     const hunks = [
-        makeHunk({ start_line: 0, end_line: 0, kind: 'Conflict' }),
-        makeHunk({ start_line: 0, end_line: 0, kind: 'Conflict' }),
+        makeHunk({
+            start_line: 0,
+            end_line: 0,
+            kind: 'Conflict',
+            local_text: 'L\n',
+            remote_text: 'R\n',
+        }),
+        makeHunk({
+            start_line: 0,
+            end_line: 0,
+            kind: 'Conflict',
+            local_text: 'L\n',
+            remote_text: 'R\n',
+        }),
         makeHunk({ start_line: 0, end_line: 1, kind: 'Unchanged' }),
     ];
     const model = new ConflictModel(hunks, Text.of(['x', '']));

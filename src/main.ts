@@ -1,14 +1,16 @@
-import { mountApp } from './app';
+import { type MountAppHandle, mountApp, wireUpdateUi } from './app';
 import {
     DEFAULT_PREFS,
     loadPrefs,
     type Prefs,
     savePrefPaneWidths,
+    savePrefSkippedUpdateVersion,
     savePrefTheme,
     savePrefWindowSize,
     toLogicalWindowSize,
 } from './prefs';
 import { applyThemeOverride } from './theme';
+import { checkForUpdate } from './update';
 
 /**
  * Loads persisted prefs (`prefs.json`, via `tauri-plugin-store`) before the
@@ -32,17 +34,35 @@ async function loadPrefsOrDefault(): Promise<{
     }
 }
 
+/**
+ * Restores the persisted window size, re-centering afterwards since
+ * `setSize` keeps the window's current top-left origin rather than growing
+ * from its center. The window is created hidden (`visible: false` in
+ * `tauri.conf.json`) specifically so this resize+recenter — and the
+ * subsequent mount — happen off-screen; `showWindowOnceReady` reveals it
+ * only once everything has settled, avoiding a visible jump/flash.
+ */
 async function restoreWindowSize(size: Prefs['windowSize']): Promise<void> {
     if (!size) return;
     try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const { LogicalSize } = await import('@tauri-apps/api/dpi');
-        await getCurrentWindow().setSize(
-            new LogicalSize(size.width, size.height),
-        );
+        const appWindow = getCurrentWindow();
+        await appWindow.setSize(new LogicalSize(size.width, size.height));
+        await appWindow.center();
     } catch {
         // Not running in a Tauri webview (or the window command is unavailable) —
         // nothing to restore to.
+    }
+}
+
+/** Reveals the window after it's been sized, positioned, and mounted. */
+async function showWindowOnceReady(): Promise<void> {
+    try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().show();
+    } catch {
+        // Not running in a Tauri webview — nothing to show.
     }
 }
 
@@ -85,6 +105,34 @@ function watchWindowSize(
         });
 }
 
+/**
+ * Checks for an update ~3s after the window loads, surfacing it only if one
+ * was actually found, so a user isn't shown "you're up to date" noise on
+ * every run. Never blocks or interrupts the merge flow: any failure (no
+ * network, no Tauri runtime, manifest/auth failure) is swallowed by
+ * `checkForUpdate` itself.
+ *
+ * Marks `app`'s version-button dot via `notifyUpdateFound` regardless of
+ * how the user is actually told about it (here, the dismissible banner from
+ * `wireUpdateUi`) — the dot reflects "an update exists", not "you clicked
+ * the version number to check".
+ */
+function scheduleBackgroundUpdateCheck(
+    root: HTMLElement,
+    app: MountAppHandle,
+    skippedVersion: Prefs['skippedUpdateVersion'],
+    onSkipVersion: (version: string) => void,
+): void {
+    setTimeout(() => {
+        void checkForUpdate().then((update) => {
+            if (update) {
+                app.notifyUpdateFound(update);
+                wireUpdateUi(root, update, { skippedVersion, onSkipVersion });
+            }
+        });
+    }, 3000);
+}
+
 window.addEventListener('DOMContentLoaded', () => {
     void (async () => {
         const root = document.querySelector<HTMLElement>('#app');
@@ -96,24 +144,41 @@ window.addEventListener('DOMContentLoaded', () => {
         // flash of the wrong palette while `mountApp`/`initTheme` spin up.
         applyThemeOverride(prefs.theme);
 
-        await restoreWindowSize(prefs.windowSize);
-        watchWindowSize(store);
+        let app: MountAppHandle;
+        try {
+            await restoreWindowSize(prefs.windowSize);
+            watchWindowSize(store);
 
-        await mountApp(root, {
-            initialTheme: prefs.theme,
-            onThemeOverrideChange: (override) => {
-                if (store) void savePrefTheme(store, override);
+            app = await mountApp(root, {
+                initialTheme: prefs.theme,
+                onThemeOverrideChange: (override) => {
+                    if (store) void savePrefTheme(store, override);
+                },
+                setWindowTitle: async (title) => {
+                    const { getCurrentWindow } = await import(
+                        '@tauri-apps/api/window'
+                    );
+                    await getCurrentWindow().setTitle(title);
+                },
+                initialPaneWidths: prefs.paneWidths ?? undefined,
+                onPaneWidthsChange: (widths) => {
+                    if (store) void savePrefPaneWidths(store, widths);
+                },
+            });
+        } finally {
+            // Reveal the window even if sizing or mounting failed above —
+            // it was created hidden (`visible: false`) specifically to let
+            // that setup happen off-screen, so it must never stay invisible.
+            await showWindowOnceReady();
+        }
+
+        scheduleBackgroundUpdateCheck(
+            root,
+            app,
+            prefs.skippedUpdateVersion,
+            (version) => {
+                if (store) void savePrefSkippedUpdateVersion(store, version);
             },
-            setWindowTitle: async (title) => {
-                const { getCurrentWindow } = await import(
-                    '@tauri-apps/api/window'
-                );
-                await getCurrentWindow().setTitle(title);
-            },
-            initialPaneWidths: prefs.paneWidths ?? undefined,
-            onPaneWidthsChange: (widths) => {
-                if (store) void savePrefPaneWidths(store, widths);
-            },
-        });
+        );
     })();
 });

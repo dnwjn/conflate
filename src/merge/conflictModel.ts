@@ -3,7 +3,9 @@ import type { Hunk, HunkKind } from '../bindings';
 
 /**
  * Hunk kinds the 3-way merge already resolved automatically. Everything else
- * (`Conflict`) needs the user's attention and starts unresolved.
+ * (`Conflict`) needs the user's attention and starts unresolved — except a
+ * `Conflict` where local and remote agree modulo whitespace, which is also
+ * auto-resolved (see `isAutoMergeable`).
  */
 const AUTO_MERGEABLE_KINDS: ReadonlySet<HunkKind> = new Set([
     'Unchanged',
@@ -11,6 +13,48 @@ const AUTO_MERGEABLE_KINDS: ReadonlySet<HunkKind> = new Set([
     'RemoteOnly',
     'SameChange',
 ]);
+
+/**
+ * Whether a hunk is resolved by the 3-way merge/load-time pass without the
+ * user picking a side: every `AUTO_MERGEABLE_KINDS` kind, plus a `Conflict`
+ * where both sides differ only in whitespace (a genuine disagreement is left
+ * for the user). `merged_text` already holds local's version for such a
+ * hunk (see `three_way.rs`'s "ours first" seeding), which is fine since local
+ * and remote only differ in whitespace there.
+ */
+function isAutoMergeable(hunk: Hunk): boolean {
+    return (
+        AUTO_MERGEABLE_KINDS.has(hunk.kind) ||
+        (hunk.kind === 'Conflict' &&
+            hunk.local_text.trim() === hunk.remote_text.trim())
+    );
+}
+
+/**
+ * Whether a hunk's current (live) text in the result document still matches
+ * one of its known source texts — local's, remote's, or both stacked
+ * together (the "accept both" case) — modulo whitespace (consistent with
+ * `isAutoMergeable`'s own whitespace-insensitive comparison). `false` means
+ * the hunk was hand-edited/pasted into since being pulled/auto-merged, so its
+ * content no longer represents a choice the merge/user explicitly made.
+ *
+ * Only meaningful for a hunk that is currently shown as resolved/auto-merged
+ * (green) — an unresolved conflict's content is expected to diverge from
+ * both sides until the user picks one, so this is not consulted there.
+ */
+export function hunkContentMatchesSource(
+    doc: Text,
+    range: { from: number; to: number },
+    hunk: Hunk,
+): boolean {
+    const text = doc.sliceString(range.from, range.to).trim();
+    const candidates = [
+        hunk.local_text.trim(),
+        hunk.remote_text.trim(),
+        (hunk.local_text + hunk.remote_text).trim(),
+    ];
+    return candidates.includes(text);
+}
 
 interface TrackedRange {
     from: number;
@@ -51,19 +95,28 @@ function lineRangeToOffsets(
  * hunks, keeping them correctly positioned as the user edits the result
  * document, and tracks which hunks have been resolved by the user.
  *
- * Auto-mergeable hunk kinds (everything except `Conflict`) start resolved,
- * since the 3-way merge already decided their content; only `Conflict`
- * hunks need explicit user resolution.
+ * Auto-mergeable hunks (see `isAutoMergeable`) start resolved, since the
+ * 3-way merge already decided their content; only a genuine `Conflict`
+ * needs explicit user resolution.
  */
 export class ConflictModel {
     private ranges: TrackedRange[];
     private resolved: boolean[];
+    /**
+     * Whether each hunk was resolved at construction time (by the 3-way
+     * merge/load-time pass) rather than by the user later pulling a side.
+     * Unlike `resolved`, this never changes after construction — it's used
+     * to tell an "auto-merged" pill apart from a user-"resolved" one even
+     * after the user pulls/undoes a side for the same hunk.
+     */
+    private autoMerged: boolean[];
 
     constructor(hunks: Hunk[], doc: Text) {
         this.ranges = hunks.map((hunk) =>
             lineRangeToOffsets(doc, hunk.start_line, hunk.end_line),
         );
-        this.resolved = hunks.map((hunk) => !isUnresolvedKind(hunk.kind));
+        this.autoMerged = hunks.map(isAutoMergeable);
+        this.resolved = [...this.autoMerged];
     }
 
     rangeFor(hunkIndex: number): { from: number; to: number } {
@@ -98,6 +151,11 @@ export class ConflictModel {
 
     isResolved(hunkIndex: number): boolean {
         return this.resolved[hunkIndex];
+    }
+
+    /** Whether this hunk was auto-resolved at load rather than by the user. */
+    wasAutoMerged(hunkIndex: number): boolean {
+        return this.autoMerged[hunkIndex];
     }
 
     /**
@@ -146,8 +204,4 @@ export class ConflictModel {
     unresolvedCount(): number {
         return this.resolved.filter((isResolved) => !isResolved).length;
     }
-}
-
-function isUnresolvedKind(kind: HunkKind): boolean {
-    return !AUTO_MERGEABLE_KINDS.has(kind);
 }

@@ -1,7 +1,8 @@
 import { clearMocks, mockIPC } from '@tauri-apps/api/mocks';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { mountApp, windowTitleFor } from './app';
+import { mountApp, showUpdateModal, windowTitleFor, wireUpdateUi } from './app';
 import { makeHunk } from './merge/testHunks';
+import { createMockUpdate } from './update';
 
 const input = {
     base: 'a\n',
@@ -9,6 +10,7 @@ const input = {
     remote: 'R\n',
     languageHint: null,
     fileName: 'pricing.rs',
+    fullPath: '/repo/sub/pricing.rs',
 };
 const mergeResult = {
     auto_merged_text: 'L\n',
@@ -64,7 +66,7 @@ test('an internal-invariant rejection from compute_three_way_merge shows an erro
         compute_three_way_merge_command: () =>
             Promise.reject('invariant violated: hunks do not tile'),
     });
-    await expect(mountApp(root)).resolves.toBeUndefined();
+    await expect(mountApp(root)).resolves.not.toBeNull();
     expect(root.querySelector('.error-state')?.textContent).toContain(
         'invariant violated',
     );
@@ -84,8 +86,50 @@ test('a malformed merge result (hunk past end of doc) shows an error state inste
             hunks: [makeHunk({ start_line: 0, end_line: 9, kind: 'Conflict' })],
         }),
     });
-    await expect(mountApp(root)).resolves.toBeUndefined();
+    await expect(mountApp(root)).resolves.not.toBeNull();
     expect(root.querySelector('.error-state')).not.toBeNull();
+});
+
+test('LOCAL/REMOTE panes show branch names from the backend when available', async () => {
+    mockBackend({
+        get_merge_input: () => ({
+            ...input,
+            localBranch: 'feature/pricing',
+            remoteBranch: 'main',
+        }),
+    });
+    await mountApp(root);
+    expect(root.querySelector('.tw-pane-local .tw-pane-sub')?.textContent).toBe(
+        '· feature/pricing',
+    );
+    expect(
+        root.querySelector('.tw-pane-remote .tw-pane-sub')?.textContent,
+    ).toBe('· main');
+});
+
+test("LOCAL falls back to 'HEAD' and REMOTE shows nothing when branch detection fails", async () => {
+    mockBackend(); // default fixture: no localBranch/remoteBranch
+    await mountApp(root);
+    expect(root.querySelector('.tw-pane-local .tw-pane-sub')?.textContent).toBe(
+        '· HEAD',
+    );
+    expect(
+        root.querySelector('.tw-pane-remote .tw-pane-sub')?.textContent,
+    ).toBe('');
+});
+
+test("notifyUpdateFound marks the version button's dot, however the caller learned about the update (not just an in-app click)", async () => {
+    mockBackend();
+    const app = await mountApp(root);
+    const versionButton =
+        root.querySelector<HTMLButtonElement>('.brand-version')!;
+    expect(versionButton.classList.contains('has-update')).toBe(false);
+
+    app.notifyUpdateFound(
+        createMockUpdate({ version: '0.2.0', currentVersion: '0.1.0' }),
+    );
+
+    expect(versionButton.classList.contains('has-update')).toBe(true);
 });
 
 test('Save with unresolved conflicts asks first; cancel does not save, confirm saves with force', async () => {
@@ -141,9 +185,6 @@ test('Save with everything resolved saves without asking and without force', asy
         root.querySelector<HTMLButtonElement>('[title^="Next conflict"]')!
             .disabled,
     ).toBe(true);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.disabled,
-    ).toBe(true);
     root.querySelector<HTMLButtonElement>('#save-button')!.click();
     await vi.waitFor(() =>
         expect(calls.some((c) => c.cmd === 'save_result')).toBe(true),
@@ -198,6 +239,7 @@ const deleteVsModifyInput = {
     remote: 'a\nB\nc\nD2\n',
     languageHint: null,
     fileName: 'doc.txt',
+    fullPath: '/repo/doc.txt',
 };
 const deleteVsModifyResult = {
     auto_merged_text: 'a\nc\nD1\n',
@@ -307,6 +349,14 @@ test('the window title names the file being merged', async () => {
     expect(document.title).toBe('pricing.rs — Conflate');
 });
 
+test('the toolbar shows the full path of the file being merged', async () => {
+    mockBackend();
+    await mountApp(root, {});
+    const label = root.querySelector<HTMLElement>('.toolbar-filepath')!;
+    expect(label.textContent).toBe(input.fullPath);
+    expect(label.title).toBe(input.fullPath);
+});
+
 test('a failing native setTitle does not break loading the merge', async () => {
     mockBackend();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -332,7 +382,7 @@ test('outside a Tauri runtime, mountApp shows a preview banner and stub data ins
     expect(root.querySelector('.error-state')).toBeNull();
 });
 
-test('Auto-merge button resolves whitespace-only conflicts on click, never automatically on load', async () => {
+test('whitespace-only conflicts are auto-merged on load with no button needed', async () => {
     const whitespaceOnlyResult = {
         auto_merged_text: 'L \n',
         conflict_count: 1,
@@ -353,29 +403,133 @@ test('Auto-merge button resolves whitespace-only conflicts on click, never autom
     });
     await mountApp(root);
 
-    // Not run automatically on load: the conflict is still unresolved.
     expect(root.querySelector('#app-message')?.textContent).toBe(
-        '1 conflict remaining',
+        'All conflicts resolved',
     );
-
-    root.querySelector<HTMLButtonElement>('#auto-merge-button')!.click();
-    expect(root.querySelector('#app-message')?.textContent).toBe(
-        'Auto-merged 1 conflict',
-    );
-});
-
-test("Auto-merge button is disabled up front when there's nothing whitespace-only to resolve", async () => {
-    mockBackend(); // default fixture: local "L" vs remote "R" is a genuine conflict, not whitespace-only
-    await mountApp(root);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.disabled,
-    ).toBe(true);
-    expect(
-        root.querySelector<HTMLButtonElement>('#auto-merge-button')!.title,
-    ).toBe('No whitespace-only conflicts to auto-merge');
+    expect(root.querySelector('#auto-merge-button')).toBeNull();
 });
 
 test('windowTitleFor falls back to the bare app name', () => {
     expect(windowTitleFor('')).toBe('Conflate');
     expect(windowTitleFor('a.rs')).toBe('a.rs — Conflate');
+});
+
+test('wireUpdateUi stays silent when the found version was already dismissed', () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    wireUpdateUi(root, update, {
+        skippedVersion: '0.2.0',
+        onSkipVersion: () => {},
+    });
+    expect(root.querySelector('.update-banner')).toBeNull();
+});
+
+test('wireUpdateUi shows a dismissible banner for a newly-found version', () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    let skipped: string | null = null;
+    wireUpdateUi(root, update, {
+        skippedVersion: null,
+        onSkipVersion: (v) => {
+            skipped = v;
+        },
+    });
+    const banner = root.querySelector('.update-banner');
+    expect(banner?.textContent).toContain('0.2.0');
+
+    root.querySelector<HTMLButtonElement>('[data-action="dismiss"]')!.click();
+    expect(root.querySelector('.update-banner')).toBeNull();
+    expect(skipped).toBe('0.2.0');
+});
+
+test("wireUpdateUi's View button opens the update modal", () => {
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+    });
+    wireUpdateUi(root, update, {
+        skippedVersion: null,
+        onSkipVersion: () => {},
+    });
+    root.querySelector<HTMLButtonElement>('[data-action="view"]')!.click();
+    expect(root.querySelector('.modal-backdrop')).not.toBeNull();
+    expect(root.querySelector('.modal-title')?.textContent).toBe(
+        'Update available',
+    );
+});
+
+test('showUpdateModal walks Update -> Downloading -> Restart to Update, then calls the injected restart', async () => {
+    vi.useFakeTimers();
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: 'Fixed things.',
+    });
+    let restarted = false;
+    showUpdateModal(root, update, {
+        restart: async () => {
+            restarted = true;
+        },
+    });
+
+    expect(root.querySelector('.modal-body')?.textContent).toContain('0.1.0');
+    expect(root.querySelector('.modal-body')?.textContent).toContain('0.2.0');
+    expect(root.querySelector('.modal-body')?.textContent).toContain(
+        'Fixed things.',
+    );
+
+    const actionButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="update"]',
+    )!;
+    expect(actionButton.textContent).toBe('Update');
+    actionButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(actionButton.disabled).toBe(true);
+    expect(actionButton.textContent).toContain('Downloading');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(actionButton.disabled).toBe(false);
+    expect(actionButton.textContent).toBe('Restart to Update');
+
+    actionButton.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(restarted).toBe(true);
+    vi.useRealTimers();
+});
+
+test('showUpdateModal recovers from a failed download instead of getting stuck on "Downloading..."', async () => {
+    const update = {
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: 'Notes',
+        downloadAndInstall: vi
+            .fn()
+            .mockRejectedValue(new Error('network down')),
+    };
+    showUpdateModal(root, update);
+
+    const actionButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="update"]',
+    )!;
+    const laterButton = root.querySelector<HTMLButtonElement>(
+        '[data-action="later"]',
+    )!;
+    actionButton.click();
+    expect(actionButton.disabled).toBe(true);
+    expect(laterButton.disabled).toBe(true);
+
+    await vi.waitFor(() => expect(actionButton.disabled).toBe(false));
+
+    expect(laterButton.disabled).toBe(false);
+    expect(root.querySelector('.modal-error')?.textContent).toContain(
+        'network down',
+    );
+
+    // The modal must still be dismissible, and retrying must be possible.
+    laterButton.click();
+    expect(root.querySelector('.modal-backdrop')).toBeNull();
 });

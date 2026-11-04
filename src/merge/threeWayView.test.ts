@@ -22,6 +22,7 @@ const input: MergeInputPayload = {
     remote: 'one\nremote two\nthree\nfour\n',
     languageHint: null,
     fileName: 'four.txt',
+    fullPath: '/repo/four.txt',
 };
 
 const mergeResult: ThreeWayMergeResult = {
@@ -134,6 +135,28 @@ test('renders three panes with the result seeded from auto_merged_text', () => {
     );
 });
 
+test('renders a connector ribbon per non-Unchanged hunk in each divider, clicking one jumps to that hunk', () => {
+    const { view, container } = setup();
+    const dividers = container.querySelectorAll('.tw-divider-body svg');
+    expect(dividers).toHaveLength(2);
+    // 2 of the 4 fixture hunks are non-Unchanged (indices 0 and 2 are Unchanged).
+    for (const svg of dividers) {
+        const visible = Array.from(
+            svg.querySelectorAll<SVGPathElement>('path'),
+        ).filter((p) => p.style.display !== 'none');
+        expect(visible).toHaveLength(2);
+    }
+    const firstVisiblePath = container.querySelector<SVGPathElement>(
+        '.tw-divider-body path:not([style*="display: none"])',
+    )!;
+    firstVisiblePath.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    // Hunk 1 (the open conflict) is the first non-Unchanged hunk; clicking its
+    // ribbon should move the cursor to its range start, same as focusHunk.
+    expect(view.resultView.state.selection.main.head).toBe(
+        view.conflictModel.rangeFor(1).from,
+    );
+});
+
 test("pullHunk replaces the result range with the chosen side's text and marks the hunk resolved", () => {
     const { view } = setup();
     expect(view.conflictModel.isResolved(1)).toBe(false);
@@ -206,13 +229,14 @@ test("pullBoth inserts local's lines followed by remote's and marks the hunk res
     );
 });
 
-test('autoMergeTrivial resolves only whitespace-only conflicts, leaves genuine ones and never runs on its own', () => {
+test('whitespace-only conflicts are auto-resolved on load, genuine ones are not', () => {
     const trivialInput: MergeInputPayload = {
         base: 'one\ntwo\nthree\n',
         local: 'one\ntwo \nthree\n',
         remote: 'one\n two\nfour\n',
         languageHint: null,
         fileName: 'trivial.txt',
+        fullPath: '/repo/trivial.txt',
     };
     const trivialMergeResult: ThreeWayMergeResult = {
         auto_merged_text: 'one\ntwo \nthree\n',
@@ -254,19 +278,15 @@ test('autoMergeTrivial resolves only whitespace-only conflicts, leaves genuine o
     );
     created.push(view);
 
-    // Never runs on its own: both conflicts are still unresolved right after mount.
-    expect(view.conflictModel.isResolved(1)).toBe(false);
-    expect(view.conflictModel.isResolved(2)).toBe(false);
-
-    expect(view.autoMergeTrivial()).toBe(1);
+    // The whitespace-only conflict is auto-resolved right after mount; the
+    // genuine one (different value, not just whitespace) is left untouched.
     expect(view.conflictModel.isResolved(1)).toBe(true);
     expect(view.conflictModel.isResolved(2)).toBe(false);
+    expect(view.conflictModel.wasAutoMerged(1)).toBe(true);
+    expect(view.conflictModel.wasAutoMerged(2)).toBe(false);
     // Resolves to local's exact bytes (not a normalized/trimmed version).
     const range = view.conflictModel.rangeFor(1);
     expect(view.resultView.state.sliceDoc(range.from, range.to)).toBe('two ');
-
-    // A second call is a no-op: nothing left that's both unresolved and trivial.
-    expect(view.autoMergeTrivial()).toBe(0);
 });
 
 test('a burst of result edits schedules at most one pending re-diff frame', () => {
@@ -338,6 +358,123 @@ test('pull arrows: both on an open conflict, otherwise only where pulling would 
     expect(resultDom.querySelectorAll('.cm-pull-remote')).toHaveLength(1);
     expect(resultDom.querySelectorAll('.cm-hunk-pill-resolved')).toHaveLength(
         1,
+    );
+});
+
+test('hand-editing a resolved conflict away from either side marks it "edited", not "resolved"', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.conflictModel.isResolved(1)).toBe(true);
+    expect(
+        resultDom.querySelectorAll('.cm-hunk-resolved').length,
+    ).toBeGreaterThan(0);
+
+    const range = view.conflictModel.rangeFor(1);
+    view.resultView.dispatch({
+        changes: { from: range.from, to: range.to, insert: 'something else\n' },
+    });
+
+    expect(
+        resultDom.querySelectorAll('.cm-hunk-edited').length,
+    ).toBeGreaterThan(0);
+    expect(resultDom.querySelectorAll('.cm-hunk-resolved')).toHaveLength(0);
+    expect(resultDom.querySelectorAll('.cm-hunk-pill-edited')).toHaveLength(1);
+
+    // Pasting the original text back reverts it to "resolved".
+    const reverted = view.conflictModel.rangeFor(1);
+    view.resultView.dispatch({
+        changes: {
+            from: reverted.from,
+            to: reverted.to,
+            insert: 'remote two\n',
+        },
+    });
+    expect(resultDom.querySelectorAll('.cm-hunk-edited')).toHaveLength(0);
+    expect(
+        resultDom.querySelectorAll('.cm-hunk-resolved').length,
+    ).toBeGreaterThan(0);
+});
+
+test('hand-editing an auto-merged hunk away from its source text marks it "edited"', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    // Hunk 3 (LocalOnly) starts auto-merged/resolved with local's text.
+    expect(view.conflictModel.wasAutoMerged(3)).toBe(true);
+    const range = view.conflictModel.rangeFor(3);
+    view.resultView.dispatch({
+        changes: { from: range.from, to: range.to, insert: 'something else\n' },
+    });
+    expect(
+        resultDom.querySelectorAll('.cm-hunk-edited').length,
+    ).toBeGreaterThan(0);
+    expect(resultDom.querySelectorAll('.cm-hunk-auto')).toHaveLength(0);
+});
+
+test('an unresolved conflict stays yellow even after hand-editing', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    const range = view.conflictModel.rangeFor(1);
+    view.resultView.dispatch({
+        changes: { from: range.from, to: range.to, insert: 'something else\n' },
+    });
+    expect(view.conflictModel.isResolved(1)).toBe(false);
+    expect(
+        resultDom.querySelectorAll('.cm-hunk-conflict').length,
+    ).toBeGreaterThan(0);
+    expect(resultDom.querySelectorAll('.cm-hunk-edited')).toHaveLength(0);
+});
+
+test('accepting one side then the other stacks them, PhpStorm-style, instead of replacing', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    expect(view.conflictModel.isResolved(1)).toBe(true);
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nthree\nfour local\n',
+    );
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nremote two\nthree\nfour local\n',
+    );
+});
+
+test('the stack keeps local-then-remote order even when remote is accepted first', () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
+    );
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nlocal two\nremote two\nthree\nfour local\n',
+    );
+});
+
+test("stacking isn't always possible: an untouched (unresolved) conflict never stacks on its first accept, even though it's pre-seeded with local's text", () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    // The conflict starts seeded with local's text ("ours first") but is
+    // still unresolved — accepting remote here must be a plain replace, not
+    // "local was already accepted, so stack".
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
+    );
+});
+
+test("stacking isn't always possible: once an already-resolved hunk is hand-edited away from either side's exact text, the other arrow just replaces", () => {
+    const { view, container } = setup();
+    const resultDom = container.querySelector('.tw-pane-result')!;
+    (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
+    const range = view.conflictModel.rangeFor(1);
+    view.resultView.dispatch({
+        changes: { from: range.from, to: range.to, insert: 'hand-edited' },
+    });
+    (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
+    expect(view.resultView.state.doc.toString()).toBe(
+        'one\nremote two\nthree\nfour local\n',
     );
 });
 
@@ -417,6 +554,7 @@ test('edits far apart within one frame are all reflected (changes are composed)'
             remote: text,
             languageHint: null,
             fileName: 'big.txt',
+            fullPath: '/repo/big.txt',
         },
         big,
         {
@@ -463,6 +601,7 @@ const crInput: MergeInputPayload = {
     remote: 'p\rq\nREMOTE\n',
     languageHint: null,
     fileName: 'cr.txt',
+    fullPath: '/repo/cr.txt',
 };
 const crResult: ThreeWayMergeResult = {
     auto_merged_text: 'p\rq\nLOCAL\n',
@@ -546,6 +685,7 @@ test('pulling a conflict whose own line contains a lone \\r replaces the whole R
             remote: 'p\rQ\nL\n',
             languageHint: null,
             fileName: 'cr.txt',
+            fullPath: '/repo/cr.txt',
         },
         result,
     );

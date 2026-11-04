@@ -9,6 +9,13 @@ name: Release
 #
 # Builds are unsigned/unnotarized (see README's Gatekeeper note) — v1 scope
 # is macOS-only, so the build job only runs on macos-latest.
+#
+# The `build` job also produces signed updater artifacts (a separate ed25519
+# signing scheme from code-signing/notarization, used by `tauri-plugin-updater`
+# to verify downloads — see README's "Self-update" section) and attaches the
+# generated `latest.json` manifest to the release. This relies on the repo
+# being public: a private repo's release-asset URLs aren't fetchable by the
+# updater's plain HTTPS GET. See README.
 
 on:
   workflow_dispatch:
@@ -108,6 +115,8 @@ jobs:
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.bump-version.outputs.tag || github.ref_name }}
           releaseName: "Conflate ${{ needs.bump-version.outputs.tag || github.ref_name }}"

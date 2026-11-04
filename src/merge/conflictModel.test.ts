@@ -1,7 +1,7 @@
 import { ChangeSet, Text } from '@codemirror/state';
 import { expect, test } from 'vitest';
 import type { Hunk, HunkKind } from '../bindings';
-import { ConflictModel } from './conflictModel';
+import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
 
 /**
  * Builds a full `Hunk` from just the fields a test cares about. The real
@@ -17,7 +17,7 @@ import { ConflictModel } from './conflictModel';
  * nothing inserted) is `{ start_line: i, end_line: i }`.
  */
 function makeHunk(
-    partial: Pick<Hunk, 'start_line' | 'end_line' | 'kind'>,
+    partial: Pick<Hunk, 'start_line' | 'end_line' | 'kind'> & Partial<Hunk>,
 ): Hunk {
     return {
         local_start_line: partial.start_line,
@@ -194,8 +194,20 @@ test('markResolved reduces unresolvedCount', () => {
     const doc = Text.of(['a', 'b']);
     const model = new ConflictModel(
         [
-            makeHunk({ start_line: 0, end_line: 1, kind: 'Conflict' }),
-            makeHunk({ start_line: 1, end_line: 2, kind: 'Conflict' }),
+            makeHunk({
+                start_line: 0,
+                end_line: 1,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
+            makeHunk({
+                start_line: 1,
+                end_line: 2,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
         ],
         doc,
     );
@@ -229,7 +241,13 @@ test('Conflict hunks start unresolved among a mix of auto-mergeable hunks', () =
     const model = new ConflictModel(
         [
             makeHunk({ start_line: 0, end_line: 1, kind: 'Unchanged' }),
-            makeHunk({ start_line: 1, end_line: 2, kind: 'Conflict' }),
+            makeHunk({
+                start_line: 1,
+                end_line: 2,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
             makeHunk({ start_line: 2, end_line: 3, kind: 'LocalOnly' }),
         ],
         doc,
@@ -240,12 +258,58 @@ test('Conflict hunks start unresolved among a mix of auto-mergeable hunks', () =
     expect(model.unresolvedCount()).toBe(1);
 });
 
+test('a Conflict hunk where local and remote agree modulo whitespace starts resolved; a genuine one does not', () => {
+    const doc = Text.of(['a', 'b']);
+    const model = new ConflictModel(
+        [
+            makeHunk({
+                start_line: 0,
+                end_line: 1,
+                kind: 'Conflict',
+                local_text: 'two \n',
+                remote_text: ' two\n',
+            }),
+            makeHunk({
+                start_line: 1,
+                end_line: 2,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
+        ],
+        doc,
+    );
+    expect(model.isResolved(0)).toBe(true);
+    expect(model.wasAutoMerged(0)).toBe(true);
+    expect(model.isResolved(1)).toBe(false);
+    expect(model.wasAutoMerged(1)).toBe(false);
+    expect(model.unresolvedCount()).toBe(1);
+});
+
+test('wasAutoMerged stays true for an auto-mergeable kind even after the user later pulls/unpulls a side', () => {
+    const doc = Text.of(['a']);
+    const model = new ConflictModel(
+        [makeHunk({ start_line: 0, end_line: 1, kind: 'LocalOnly' })],
+        doc,
+    );
+    model.markUnresolved(0);
+    expect(model.wasAutoMerged(0)).toBe(true);
+    model.markResolved(0);
+    expect(model.wasAutoMerged(0)).toBe(true);
+});
+
 test('hunkCount, setRange and markUnresolved', () => {
     const doc = Text.of(['line1', 'line2', 'line3']);
     const model = new ConflictModel(
         [
             makeHunk({ start_line: 0, end_line: 1, kind: 'Unchanged' }),
-            makeHunk({ start_line: 1, end_line: 2, kind: 'Conflict' }),
+            makeHunk({
+                start_line: 1,
+                end_line: 2,
+                kind: 'Conflict',
+                local_text: 'L\n',
+                remote_text: 'R\n',
+            }),
         ],
         doc,
     );
@@ -257,4 +321,64 @@ test('hunkCount, setRange and markUnresolved', () => {
     model.markUnresolved(1);
     expect(model.isResolved(1)).toBe(false);
     expect(model.unresolvedCount()).toBe(1);
+});
+
+test('hunkContentMatchesSource', () => {
+    const hunk = makeHunk({
+        start_line: 0,
+        end_line: 1,
+        kind: 'Conflict',
+        local_text: 'local two\n',
+        remote_text: 'remote two\n',
+    });
+
+    // matches local
+    const localDoc = Text.of(['local two']);
+    expect(
+        hunkContentMatchesSource(
+            localDoc,
+            { from: 0, to: localDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // matches remote
+    const remoteDoc = Text.of(['remote two']);
+    expect(
+        hunkContentMatchesSource(
+            remoteDoc,
+            { from: 0, to: remoteDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // matches stacked local+remote (accept-both)
+    const stackedDoc = Text.of(['local two', 'remote two']);
+    expect(
+        hunkContentMatchesSource(
+            stackedDoc,
+            { from: 0, to: stackedDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // whitespace-only difference still matches (trimmed comparison)
+    const trailingSpaceDoc = Text.of(['local two ']);
+    expect(
+        hunkContentMatchesSource(
+            trailingSpaceDoc,
+            { from: 0, to: trailingSpaceDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // genuinely different content does not match
+    const editedDoc = Text.of(['something else']);
+    expect(
+        hunkContentMatchesSource(
+            editedDoc,
+            { from: 0, to: editedDoc.length },
+            hunk,
+        ),
+    ).toBe(false);
 });

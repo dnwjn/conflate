@@ -69,6 +69,51 @@ ln -s /Applications/Conflate.app/Contents/MacOS/conflate /usr/local/bin/conflate
 
 See [Build from source](#build-from-source) below.
 
+## Self-update
+
+Conflate checks `dnwjn/conflate`'s GitHub releases for a newer version a few
+seconds after launch, and silently does nothing if there isn't one — no
+"you're up to date" popup on every run. If an update is found, a dismissible
+banner appears; dismissing it means that version won't be mentioned again
+(dismissal is per-version, not per-session). Click the version number in the
+toolbar at any time to check manually. The update dialog downloads and
+installs the new version in place; apply it with "Restart to Update".
+
+This uses [`tauri-plugin-updater`](https://v2.tauri.app/plugin/updater/),
+which verifies every downloaded update against an ed25519 signature before
+installing it — a separate mechanism from (and no substitute for) the
+Gatekeeper code-signing/notarization this project doesn't do (see
+[Download a release](#download-a-release)).
+
+**This requires the repo to be public.** The updater does a plain HTTPS GET
+against `https://github.com/dnwjn/conflate/releases/latest/download/latest.json`
+(the standard manifest URL `tauri-apps/tauri-action` publishes to on every
+release) and then a second GET for the matched binary asset. Neither request
+can carry auth, so a private repo's release assets simply aren't reachable
+this way — no workaround is built in for that case. `dnwjn/conflate` is
+currently private; the self-updater won't find anything until the repo is
+made public.
+
+### One-time maintainer setup (not automated)
+
+Generate a signing keypair with the project's own `@tauri-apps/cli`:
+`npx tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
+somewhere outside the repo). Put the printed public key in
+`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing the
+placeholder), and add the private key's contents (and its password, if set)
+as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Never commit the private key.
+
+### Exercising the update UI in development
+
+There's no real release endpoint to check against during development.
+`npm run dev:stub` sets `VITE_STUB_UPDATE`, which makes `checkForUpdate`
+(`src/update.ts`) skip the real plugin call and return a canned "newer
+version available" update instead, so the banner/modal/download-progress
+flow can be exercised end to end without a real Tauri runtime or a
+published release. Set the same variable yourself (`VITE_STUB_UPDATE=1 npm
+run dev`) to get the same effect in the plain browser preview.
+
 ## Set up as your git mergetool
 
 Conflate is a CLI binary invokable with git's own mergetool substitution
@@ -87,7 +132,19 @@ Add it to `~/.gitconfig`:
     trustExitCode = true
 [merge]
     tool = conflate
+[mergetool]
+    keepBackup = false
 ```
+
+`mergetool.keepBackup = false` stops git from keeping a `<file>.orig` copy of
+the conflicted file after every successful merge (git's own default is to
+keep it). Conflate also deletes its own `$BASE`/`$LOCAL`/`$REMOTE` temp
+files as soon as it reads them, whether you save or abort — but only when
+they're actually named like git's own mergetool temp files
+(`<name>_BASE_<pid>`/`_LOCAL_<pid>`/`_REMOTE_<pid>`); a plain path handed to
+`conflate` directly (e.g. for manual testing) is never touched. With
+`keepBackup` set, nothing should linger in your working tree after a normal
+`git mergetool` run.
 
 The CLI binary needs to be on your `$PATH` as `conflate`:
 
@@ -133,7 +190,7 @@ conflict with an external tool").
 ## Known limitations
 
 - **Text files only.** Inputs must be UTF-8 text; binary files (images,
-  archives, …) are rejected with exit code `2` before a window opens. Use
+  archives, ...) are rejected with exit code `2` before a window opens. Use
   git's own tooling (`git checkout --ours/--theirs`) for those.
 - **Line endings.** The merge itself works on LF line endings, so a file
   whose only difference between sides is CRLF vs LF never shows a false

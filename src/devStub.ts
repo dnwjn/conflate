@@ -26,6 +26,9 @@ export function devStubMergeInput(): MergeInputPayload_Serialize {
         remote: remoteSample,
         languageHint: 'ts',
         fileName: 'sample.ts (dev preview)',
+        fullPath: '/Users/you/sample-project/dev-fixtures/sample/sample.ts',
+        localBranch: 'feature/pricing',
+        remoteBranch: 'main',
     };
 }
 

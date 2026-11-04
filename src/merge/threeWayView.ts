@@ -45,7 +45,8 @@ import type {
     ThreeWayMergeResult,
     WordDiffOp,
 } from '../bindings';
-import { ConflictModel } from './conflictModel';
+import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
+import { computeConnectorGeometry, ribbonPath } from './hunkConnectors';
 import { hunkIndexAt as hunkIndexForCursor } from './hunkNav';
 import { computePullChange } from './pullChange';
 import { wordDiffRanges } from './wordDiff';
@@ -93,23 +94,22 @@ export interface ThreeWayView {
     /** Replaces the hunk's live result range with `side`'s text and marks it resolved. Returns false if nothing changed. */
     pullHunk(hunkIndex: number, side: Side): boolean;
     /**
+     * PhpStorm-style "accept this side" — the arrows in the RESULT pane
+     * (and the ⌥⌘←/⌥⌘→ keybindings) use this instead of `pullHunk`. If the
+     * OTHER side is already cleanly in place, this appends `side` after it
+     * (stacking both, always local-then-remote) rather than replacing it;
+     * otherwise it's a plain `pullHunk`. Returns false if nothing changed.
+     */
+    acceptSide(hunkIndex: number, side: Side): boolean;
+    /**
      * Replaces the hunk's live result range with BOTH sides' text (local's
-     * lines followed by remote's) and marks it resolved. See "Accept both"
-     * semantics in `keymap.ts` for why this order was chosen. Returns false
-     * if nothing changed.
+     * lines followed by remote's) and marks it resolved in one step,
+     * regardless of the hunk's current state — unlike `acceptSide`, which
+     * only stacks when the other side is already cleanly in place. See
+     * "Accept both" semantics in `keymap.ts` for why this order was chosen.
+     * Returns false if nothing changed.
      */
     pullBoth(hunkIndex: number): boolean;
-    /**
-     * Resolves every unresolved `Conflict` hunk where local and remote agree
-     * modulo whitespace (`local_text.trim() === remote_text.trim()`) — a
-     * genuine disagreement (different value/logic) is left untouched for the
-     * user to pick a side. Only runs when called (e.g. from a toolbar
-     * button); never invoked automatically on load. Returns the number of
-     * hunks resolved.
-     */
-    autoMergeTrivial(): number;
-    /** Whether `autoMergeTrivial()` would resolve anything right now — for disabling its button when there's nothing to do. */
-    hasTrivialConflicts(): boolean;
     /**
      * Index of the hunk the result cursor at offset `pos` is on (hunks tile
      * the document). A zero-width conflict at `pos` wins over the hunk that
@@ -348,8 +348,6 @@ function gapLine(doc: Text, line: number): { number: number; atEnd: boolean } {
         : { number: doc.lines, atEnd: true };
 }
 
-const AUTO_KINDS = new Set(['LocalOnly', 'RemoteOnly', 'SameChange']);
-
 // ---------------------------------------------------------------------------
 // The composition
 // ---------------------------------------------------------------------------
@@ -418,8 +416,22 @@ export function createThreeWayView(
     const makeDivider = (resizes: 'local' | 'remote') => {
         const divider = document.createElement('div');
         divider.className = 'tw-divider';
+        const spacer = document.createElement('div');
+        spacer.className = 'tw-divider-spacer';
+        const body = document.createElement('div');
+        body.className = 'tw-divider-body';
+        const svg = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'svg',
+        );
+        svg.setAttribute('class', 'tw-connector-svg');
+        body.appendChild(svg);
+        divider.append(spacer, body);
         divider.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
+            // A ribbon connector owns its own click-to-navigate; don't start
+            // a resize drag when the pointer came down on one.
+            if (event.target instanceof SVGPathElement) return;
             event.preventDefault();
             const pane = (resizes === 'local' ? localPane : remotePane).root;
             const startX = event.clientX;
@@ -429,8 +441,8 @@ export function createThreeWayView(
                 resizes === 'local' ? remotePane : localPane
             ).root.getBoundingClientRect().width;
             const dividerWidths =
-                localDivider.getBoundingClientRect().width +
-                remoteDivider.getBoundingClientRect().width;
+                localDividerParts.divider.getBoundingClientRect().width +
+                remoteDividerParts.divider.getBoundingClientRect().width;
             const maxWidth = Math.max(
                 MIN_SIDE_PANE_WIDTH,
                 containerWidth -
@@ -467,16 +479,16 @@ export function createThreeWayView(
                 remote: remotePane.root.getBoundingClientRect().width,
             });
         });
-        return divider;
+        return { divider, svg };
     };
     const localPane = makePane('local', 'LOCAL', options.localLabel ?? 'HEAD');
     if (options.paneWidths)
         localPane.root.style.flexBasis = `${options.paneWidths.local}px`;
-    const localDivider = makeDivider('local');
-    panes.appendChild(localDivider);
+    const localDividerParts = makeDivider('local');
+    panes.appendChild(localDividerParts.divider);
     const resultPane = makePane('result', 'RESULT', 'editable');
-    const remoteDivider = makeDivider('remote');
-    panes.appendChild(remoteDivider);
+    const remoteDividerParts = makeDivider('remote');
+    panes.appendChild(remoteDividerParts.divider);
     const remotePane = makePane('remote', 'REMOTE', options.remoteLabel ?? '');
     if (options.paneWidths)
         remotePane.root.style.flexBasis = `${options.paneWidths.remote}px`;
@@ -542,12 +554,26 @@ export function createThreeWayView(
             const range = conflictModel.rangeFor(i);
             if (range.from > doc.length || range.to > doc.length) continue;
             const resolved = conflictModel.isResolved(i);
+            // Content-aware highlighting: a resolved/auto-merged (green)
+            // hunk whose live text no longer matches any source it could
+            // have come from (local, remote, or both stacked) has been hand-
+            // edited/pasted into since — flag it distinctly rather than
+            // silently keeping the stale "resolved" color. Unresolved
+            // conflicts (yellow) are untouched: "needs a decision" stays
+            // true regardless of what the user has typed in the meantime.
+            const edited =
+                (hunk.kind !== 'Conflict' || resolved) &&
+                !hunkContentMatchesSource(doc, range, hunk);
             const cls =
                 hunk.kind === 'Conflict'
                     ? resolved
-                        ? 'cm-hunk-resolved'
+                        ? edited
+                            ? 'cm-hunk-edited'
+                            : 'cm-hunk-resolved'
                         : 'cm-hunk-conflict'
-                    : 'cm-hunk-auto';
+                    : edited
+                      ? 'cm-hunk-edited'
+                      : 'cm-hunk-auto';
             const covering = hunkIsCovering(i);
             const firstLine = doc.lineAt(range.from);
             if (covering) {
@@ -584,11 +610,13 @@ export function createThreeWayView(
                 open ||
                 computePullChange(doc, range, hunk.remote_text, covering) !==
                     null;
-            const pill = AUTO_KINDS.has(hunk.kind)
-                ? 'auto-merged'
-                : hunk.kind === 'Conflict' && resolved
-                  ? 'resolved'
-                  : null;
+            const pill = edited
+                ? 'edited'
+                : conflictModel.wasAutoMerged(i)
+                  ? 'auto-merged'
+                  : hunk.kind === 'Conflict' && resolved
+                    ? 'resolved'
+                    : null;
             if (canPullLocal || canPullRemote || pill) {
                 decos.push(
                     Decoration.widget({
@@ -598,7 +626,7 @@ export function createThreeWayView(
                             canPullRemote,
                             pill,
                             (index, side) => {
-                                pullHunk(index, side);
+                                acceptSide(index, side);
                             },
                         ),
                         side: -1,
@@ -726,6 +754,11 @@ export function createThreeWayView(
         chunksBuilt = true;
         pendingChanges = null;
         pushSideDecorations();
+        // Not scheduled via scheduleConnectorRender: rediff() itself already
+        // runs inside a debounced frame (scheduleRediff) or an explicit
+        // flush, so rendering connectors synchronously here avoids queuing a
+        // second, redundant frame request on every edit.
+        renderConnectors();
     }
 
     function pushSideDecorations() {
@@ -804,6 +837,77 @@ export function createThreeWayView(
             view.dispatch({
                 effects: setSideDecorations.of(Decoration.set(decos, true)),
             });
+        }
+    }
+
+    // --- Connector ribbons (visual mapping of side lines to result lines) ---
+    // One SVGPathElement per divider, keyed by hunk index and reused across
+    // frames (hunks.length never changes post-mount, so the pool is a fixed
+    // size allocated once).
+    const localPathPool: SVGPathElement[] = hunks.map((_, i) =>
+        makeConnectorPath(localDividerParts.svg, i),
+    );
+    const remotePathPool: SVGPathElement[] = hunks.map((_, i) =>
+        makeConnectorPath(remoteDividerParts.svg, i),
+    );
+    function makeConnectorPath(
+        svg: SVGSVGElement,
+        hunkIndex: number,
+    ): SVGPathElement {
+        const path = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'path',
+        );
+        path.style.display = 'none';
+        path.addEventListener('click', () => focusHunk(hunkIndex));
+        svg.appendChild(path);
+        return path;
+    }
+
+    let connectorFrame: number | null = null;
+    function scheduleConnectorRender() {
+        if (destroyed) return;
+        if (connectorFrame !== null) scheduler.cancel(connectorFrame);
+        connectorFrame = scheduler.request(() => {
+            connectorFrame = null;
+            renderConnectors();
+        });
+    }
+
+    function renderConnectors() {
+        if (destroyed) return;
+        const geometry = computeConnectorGeometry(
+            hunks,
+            conflictModel,
+            hunkIsCovering,
+            localView,
+            resultView,
+            remoteView,
+        );
+        const shown = new Set(geometry.map((g) => g.index));
+        const localWidth = localDividerParts.svg.clientWidth;
+        const remoteWidth = remoteDividerParts.svg.clientWidth;
+        for (const g of geometry) {
+            const cls = `tw-connector tw-connector-${g.style}`;
+            const localPath = localPathPool[g.index];
+            localPath.setAttribute('class', cls);
+            localPath.setAttribute(
+                'd',
+                ribbonPath(localWidth, g.local, g.result),
+            );
+            localPath.style.display = '';
+            const remotePath = remotePathPool[g.index];
+            remotePath.setAttribute('class', cls);
+            remotePath.setAttribute(
+                'd',
+                ribbonPath(remoteWidth, g.result, g.remote),
+            );
+            remotePath.style.display = '';
+        }
+        for (let i = 0; i < hunks.length; i++) {
+            if (shown.has(i)) continue;
+            localPathPool[i].style.display = 'none';
+            remotePathPool[i].style.display = 'none';
         }
     }
 
@@ -935,6 +1039,7 @@ export function createThreeWayView(
             );
             view.scrollDOM.scrollTop = sideBlock.top + offsetInto;
         }
+        scheduleConnectorRender();
     }
     const onResultScroll = () => syncScroll();
     resultView.scrollDOM.addEventListener('scroll', onResultScroll, {
@@ -953,6 +1058,14 @@ export function createThreeWayView(
     remoteView.scrollDOM.addEventListener('wheel', onSideWheel, {
         passive: false,
     });
+    // A pane resize (divider drag, double-click reset, or window resize)
+    // changes the dividers' pixel height/width; snap connectors to it
+    // immediately rather than waiting for the next scroll/edit.
+    const connectorResizeObserver =
+        typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => scheduleConnectorRender())
+            : null;
+    connectorResizeObserver?.observe(panes);
 
     // --- Header ---------------------------------------------------------------
     function updateHeader() {
@@ -1010,10 +1123,62 @@ export function createThreeWayView(
         return true;
     }
 
+    /**
+     * PhpStorm-style stacking: accepting a side while the OTHER side is
+     * already cleanly in place (the hunk's live range holds exactly that
+     * side's text, not something hand-edited away from it) appends this
+     * side after it instead of replacing it — so "accept local" then
+     * "accept remote" (in either order) keeps both, always arranged
+     * local-then-remote (see `pullBoth`'s doc comment for why that order).
+     * Anything else — the first pull on a hunk, accepting the same side
+     * again, or a result already hand-edited away from either side's exact
+     * text — isn't representable as a stack, so it falls back to a plain
+     * replace: stacking isn't always possible.
+     */
     function pullHunk(hunkIndex: number, side: Side): boolean {
         return pullText(
             hunkIndex,
             sideText(hunkIndex, side),
+            `input.pull.${side}`,
+        );
+    }
+
+    /**
+     * PhpStorm-style "accept this side": like `pullHunk`, but if the OTHER
+     * side is already cleanly in place (the hunk's live range holds exactly
+     * that side's text, not something hand-edited away from it) this
+     * appends `side` after it instead of replacing it — so accepting local
+     * then remote (in either order) keeps both, always arranged
+     * local-then-remote (see `pullBoth`'s doc comment for why that order).
+     * Falls back to a plain `pullHunk` replace whenever that isn't
+     * representable — the first pull on a hunk, accepting the same side
+     * again, or a result already hand-edited away from either side's exact
+     * text — since stacking isn't always possible.
+     */
+    function acceptSide(hunkIndex: number, side: Side): boolean {
+        const hunk = hunks[hunkIndex];
+        // Only stack onto a hunk the user has already explicitly resolved —
+        // an untouched Conflict starts seeded with local's text ("ours
+        // first"), so checking content alone would wrongly treat accepting
+        // remote on a still-open conflict as "local was already accepted".
+        if (hunk.kind !== 'Conflict' || !conflictModel.isResolved(hunkIndex))
+            return pullHunk(hunkIndex, side);
+        const otherSide: Side = side === 'local' ? 'remote' : 'local';
+        const range = conflictModel.rangeFor(hunkIndex);
+        // ConflictModel's tracked range excludes the hunk's own trailing
+        // line break (see `computePullChange`'s doc comment), but `*_text`
+        // ends with one — strip it before comparing, same as
+        // `computePullChange`'s `sideBody`, or this would never match.
+        const otherText = sideText(hunkIndex, otherSide);
+        const otherBody = otherText.endsWith('\n')
+            ? otherText.slice(0, -1)
+            : otherText;
+        const stacking =
+            resultView.state.sliceDoc(range.from, range.to) === otherBody;
+        if (!stacking) return pullHunk(hunkIndex, side);
+        return pullText(
+            hunkIndex,
+            hunk.local_text + hunk.remote_text,
             `input.pull.${side}`,
         );
     }
@@ -1040,31 +1205,6 @@ export function createThreeWayView(
             hunk.local_text + hunk.remote_text,
             'input.pull.both',
         );
-    }
-
-    function isTrivialConflict(hunkIndex: number): boolean {
-        const hunk = hunks[hunkIndex];
-        return (
-            hunk.kind === 'Conflict' &&
-            !conflictModel.isResolved(hunkIndex) &&
-            hunk.local_text.trim() === hunk.remote_text.trim()
-        );
-    }
-
-    function autoMergeTrivial(): number {
-        let resolvedCount = 0;
-        for (let i = 0; i < hunks.length; i++) {
-            if (!isTrivialConflict(i)) continue;
-            if (pullHunk(i, 'local')) resolvedCount++;
-        }
-        return resolvedCount;
-    }
-
-    function hasTrivialConflicts(): boolean {
-        for (let i = 0; i < hunks.length; i++) {
-            if (isTrivialConflict(i)) return true;
-        }
-        return false;
     }
 
     function focusHunk(hunkIndex: number) {
@@ -1094,9 +1234,8 @@ export function createThreeWayView(
         conflictModel,
         hunks,
         pullHunk,
+        acceptSide,
         pullBoth,
-        autoMergeTrivial,
-        hasTrivialConflicts,
         hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
         focusHunk,
         setWordDiffEnabled(enabled: boolean) {
@@ -1122,6 +1261,9 @@ export function createThreeWayView(
             destroyed = true;
             if (frame !== null) scheduler.cancel(frame);
             frame = null;
+            if (connectorFrame !== null) scheduler.cancel(connectorFrame);
+            connectorFrame = null;
+            connectorResizeObserver?.disconnect();
             resultView.scrollDOM.removeEventListener('scroll', onResultScroll);
             localView.scrollDOM.removeEventListener('wheel', onSideWheel);
             remoteView.scrollDOM.removeEventListener('wheel', onSideWheel);

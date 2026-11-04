@@ -7,7 +7,7 @@
  * back to the live `@media (prefers-color-scheme: dark)` query below, which
  * is guarded with `:not([data-theme])` so it only ever engages in that
  * state; a manual override reaches the browser as its own plain
- * `:root[data-theme="…"]` rule further down, applying regardless of the
+ * `:root[data-theme="..."]` rule further down, applying regardless of the
  * live system preference in either direction. The dark palette therefore
  * appears twice — once gated by the media query (system, OS dark), once
  * ungated (manual "dark" override, any OS appearance) — because a selector
@@ -36,6 +36,23 @@
 	--auto-bg: #e9f7ee;
 	--auto-border: #86c99b;
 	--auto-ink: #1a7f37;
+	/* Same colors as --conflict-bg/--auto-bg against --bg, but as a
+	 * translucent overlay rather than an opaque fill (alpha-composited
+	 * values solved so the result is pixel-identical over --bg). Used only
+	 * on `.cm-line` in the RESULT pane (see "Hunk bands" below), where an
+	 * opaque line background would otherwise paint fully over CodeMirror's
+	 * selection layer (rendered behind `.cm-content`) and hide text
+	 * selection inside an auto-merged/conflict hunk. */
+	--conflict-line-bg: rgba(251, 229, 199, 0.5);
+	--auto-line-bg: rgba(211, 239, 221, 0.5);
+
+	/* A resolved/auto-merged hunk whose live text no longer matches any of
+	 * its known source texts (hand-edited/pasted into since) — neutral
+	 * blue-grey, distinct from the error-ish yellow and success-ish green. */
+	--edited-bg: #eef1f8;
+	--edited-border: #6b7cad;
+	--edited-ink: #39456e;
+	--edited-line-bg: rgba(222, 227, 242, 0.5);
 
 	--live-local-bg: rgba(37, 99, 235, 0.08);
 	--live-remote-bg: rgba(147, 51, 234, 0.08);
@@ -87,6 +104,13 @@
 		--auto-bg: #0f2317;
 		--auto-border: #2f6b43;
 		--auto-ink: #56d364;
+		--conflict-line-bg: rgba(73, 49, 11, 0.5);
+		--auto-line-bg: rgba(17, 53, 23, 0.5);
+
+		--edited-bg: #1c2333;
+		--edited-border: #6c80c2;
+		--edited-ink: #a9b6e8;
+		--edited-line-bg: rgba(42, 52, 82, 0.5);
 
 		--live-local-bg: rgba(88, 166, 255, 0.1);
 		--live-remote-bg: rgba(199, 146, 234, 0.1);
@@ -132,6 +156,13 @@
 	--auto-bg: #0f2317;
 	--auto-border: #2f6b43;
 	--auto-ink: #56d364;
+	--conflict-line-bg: rgba(73, 49, 11, 0.5);
+	--auto-line-bg: rgba(17, 53, 23, 0.5);
+
+	--edited-bg: #1c2333;
+	--edited-border: #6c80c2;
+	--edited-ink: #a9b6e8;
+	--edited-line-bg: rgba(42, 52, 82, 0.5);
 
 	--live-local-bg: rgba(88, 166, 255, 0.1);
 	--live-remote-bg: rgba(199, 146, 234, 0.1);
@@ -266,8 +297,7 @@ button:focus-visible {
 }
 
 .brand-mark {
-	color: var(--brand);
-	font-size: 15px;
+	display: flex;
 }
 
 .toolbar-divider {
@@ -279,6 +309,16 @@ button:focus-visible {
 
 .toolbar-spacer {
 	flex: 1;
+}
+
+.toolbar-filepath {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	font-size: 12px;
+	color: var(--muted);
 }
 
 .toolbar-button,
@@ -352,7 +392,9 @@ button:focus-visible {
 }
 
 .tw-divider {
-	flex: 0 0 5px;
+	flex: 0 0 28px;
+	display: flex;
+	flex-direction: column;
 	cursor: col-resize;
 	background: transparent;
 	position: relative;
@@ -361,6 +403,43 @@ button:focus-visible {
 .tw-divider:hover,
 .tw-divider:active {
 	background: var(--brand);
+}
+
+.tw-divider-spacer {
+	flex: 0 0 30px;
+}
+
+.tw-divider-body {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+}
+
+.tw-connector-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.tw-connector {
+	stroke-width: 1;
+	cursor: pointer;
+	pointer-events: auto;
+	transition: opacity 0.1s;
+}
+
+.tw-connector:hover {
+	opacity: 0.7;
+}
+
+.tw-connector-conflict {
+	fill: var(--conflict-line-bg);
+	stroke: var(--conflict-border);
+}
+
+.tw-connector-auto {
+	fill: var(--auto-line-bg);
+	stroke: var(--auto-border);
 }
 
 .tw-pane-local,
@@ -525,13 +604,21 @@ button:focus-visible {
 	--hunk-border: var(--auto-border);
 }
 
+.tw-root .cm-hunk-edited {
+	--hunk-border: var(--edited-border);
+}
+
 .tw-root .cm-line.cm-hunk-conflict {
-	background: var(--conflict-bg);
+	background: var(--conflict-line-bg);
 }
 
 .tw-pane-result .cm-line.cm-hunk-auto,
 .tw-pane-result .cm-line.cm-hunk-resolved {
-	background: var(--auto-bg);
+	background: var(--auto-line-bg);
+}
+
+.tw-pane-result .cm-line.cm-hunk-edited {
+	background: var(--edited-line-bg);
 }
 
 .tw-root .cm-line.cm-hunk-first {
@@ -687,6 +774,11 @@ button:focus-visible {
 	border: 1px solid var(--auto-border);
 	color: var(--auto-ink);
 	background: var(--bg);
+}
+
+.cm-hunk-pill-edited {
+	border-color: var(--edited-border);
+	color: var(--edited-ink);
 }
 
 /* -- Syntax tokens (classHighlighter) -- */
@@ -883,4 +975,82 @@ button:focus-visible {
 	font-size: 11px;
 	line-height: 1.5;
 	text-align: center;
+}
+
+/* ---- Self-updater (toolbar version label, banner, modal extras) --------- */
+
+.brand-version {
+	position: relative;
+	height: auto;
+	min-width: 0;
+	padding: 1px 6px;
+	border: none;
+	background: none;
+	color: var(--muted);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.brand-version:not(:disabled):hover {
+	color: var(--text);
+}
+
+.brand-version.has-update::after {
+	content: '';
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--brand);
+}
+
+.update-banner {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 6px 12px;
+	font-size: 12px;
+	color: var(--conflict-ink);
+	background: var(--conflict-bg);
+	border-bottom: 1px solid var(--conflict-border);
+}
+
+.update-banner-actions {
+	display: flex;
+	gap: 6px;
+	margin-left: auto;
+}
+
+.btn-small {
+	height: 22px;
+	padding: 0 10px;
+	font-size: 12px;
+}
+
+.update-notes {
+	color: var(--text);
+}
+
+.update-progress {
+	height: 6px;
+	margin-bottom: 18px;
+	border-radius: 3px;
+	background: var(--panel);
+	overflow: hidden;
+}
+
+.update-progress-bar {
+	height: 100%;
+	width: 0;
+	background: var(--brand);
+	transition: width 0.2s ease;
+}
+
+.modal-error {
+	margin: -8px 0 18px;
+	color: var(--danger);
+	font-size: 12px;
 }

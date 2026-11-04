@@ -7,7 +7,11 @@
     "core:default",
     "opener:default",
     "store:default",
+    "updater:default",
+    "process:default",
     "core:window:allow-set-size",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "core:window:allow-center",
+    "core:window:allow-show"
   ]
 }

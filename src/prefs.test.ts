@@ -6,6 +6,7 @@ import {
     loadPrefs,
     sanitizePrefs,
     savePrefPaneWidths,
+    savePrefSkippedUpdateVersion,
     savePrefTheme,
     savePrefWindowSize,
     toLogicalWindowSize,
@@ -26,11 +27,13 @@ test('sanitizePrefs falls back to defaults field-by-field for missing/invalid da
         theme: 'system',
         windowSize: { width: 800, height: 600 },
         paneWidths: null,
+        skippedUpdateVersion: null,
     });
     expect(sanitizePrefs({ theme: 'dark', windowSize: 'not-a-size' })).toEqual({
         theme: 'dark',
         windowSize: null,
         paneWidths: null,
+        skippedUpdateVersion: null,
     });
     expect(
         sanitizePrefs({ theme: 'dark', windowSize: { width: 800 } }),
@@ -38,11 +41,13 @@ test('sanitizePrefs falls back to defaults field-by-field for missing/invalid da
         theme: 'dark',
         windowSize: null,
         paneWidths: null,
+        skippedUpdateVersion: null,
     });
     expect(sanitizePrefs({ paneWidths: { local: 400, remote: 400 } })).toEqual({
         theme: 'system',
         windowSize: null,
         paneWidths: { local: 400, remote: 400 },
+        skippedUpdateVersion: null,
     });
     expect(sanitizePrefs({ paneWidths: 'not-widths' })).toEqual(DEFAULT_PREFS);
     expect(sanitizePrefs({ paneWidths: { local: 400 } })).toEqual(
@@ -51,6 +56,13 @@ test('sanitizePrefs falls back to defaults field-by-field for missing/invalid da
     expect(
         sanitizePrefs({ paneWidths: { local: Number.NaN, remote: 400 } }),
     ).toEqual(DEFAULT_PREFS);
+    expect(sanitizePrefs({ skippedUpdateVersion: '1.2.3' })).toEqual({
+        theme: 'system',
+        windowSize: null,
+        paneWidths: null,
+        skippedUpdateVersion: '1.2.3',
+    });
+    expect(sanitizePrefs({ skippedUpdateVersion: 42 })).toEqual(DEFAULT_PREFS);
 });
 
 test('sanitizePrefs accepts a well-formed stored value unchanged', () => {
@@ -59,11 +71,13 @@ test('sanitizePrefs accepts a well-formed stored value unchanged', () => {
             theme: 'light',
             windowSize: { width: 1024, height: 768 },
             paneWidths: { local: 350, remote: 420 },
+            skippedUpdateVersion: '0.2.0',
         }),
     ).toEqual({
         theme: 'light',
         windowSize: { width: 1024, height: 768 },
         paneWidths: { local: 350, remote: 420 },
+        skippedUpdateVersion: '0.2.0',
     });
 });
 
@@ -109,12 +123,14 @@ test('loadPrefs reads back a previously-set theme/windowSize through the mocked 
     await savePrefTheme(store, 'dark');
     await savePrefWindowSize(store, { width: 900, height: 650 });
     await savePrefPaneWidths(store, { local: 350, remote: 420 });
+    await savePrefSkippedUpdateVersion(store, '0.2.0');
 
     const reloaded = await loadPrefs();
     expect(reloaded.prefs).toEqual({
         theme: 'dark',
         windowSize: { width: 900, height: 650 },
         paneWidths: { local: 350, remote: 420 },
+        skippedUpdateVersion: '0.2.0',
     });
 });
 
