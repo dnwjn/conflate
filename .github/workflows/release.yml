@@ -78,7 +78,7 @@ jobs:
 
           git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
           git commit -m "chore: release v$VERSION"
-          git tag "v$VERSION"
+          git tag -a "v$VERSION" -m "v$VERSION"
 
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
