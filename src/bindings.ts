@@ -46,9 +46,44 @@ export const commands = {
 	 *  `src/bindings.ts` a syntax error.
 	 */
 	computeWordDiffCommand: (old: string, newText: string) => __TAURI_INVOKE<WordDiffOp[]>("compute_word_diff_command", { old, newText }),
+	/**
+	 *  Tauri command: whether this session was launched as a `git mergetool`
+	 *  invocation (`get_merge_input`/`save_result`/`abort_merge` are usable) or
+	 *  with no args at all (the frontend shows the empty-state/repo-browser
+	 *  screen instead). See `crate::LaunchModeMarker`.
+	 */
+	getLaunchMode: () => __TAURI_INVOKE<boolean>("get_launch_mode"),
+	/**
+	 *  Tauri command: opens a native folder picker for the empty-state repo
+	 *  browser. `None` if the user cancels.
+	 */
+	pickRepoFolder: () => __TAURI_INVOKE<string | null>("pick_repo_folder"),
+	/**
+	 *  Tauri command: scans a folder the user picked for a git repo with a
+	 *  merge in progress, listing any unmerged (conflicted) files.
+	 */
+	scanRepoForConflicts: (repoPath: string) => __TAURI_INVOKE<RepoScanResult>("scan_repo_for_conflicts", { repoPath }),
+	/**
+	 *  Tauri command: loads one conflicted file's base/local/remote content
+	 *  straight from `repo_path`'s git index, for the empty-state repo browser.
+	 */
+	loadConflictFromRepo: (repoPath: string, filePath: string) => __TAURI_INVOKE<MergeInputPayload_Serialize>("load_conflict_from_repo", { repoPath, filePath }),
+	/**
+	 *  Tauri command: writes a conflict resolved via the empty-state repo
+	 *  browser to its real working-tree file (not a mergetool temp file,
+	 *  since there is no `$MERGED` path in this flow) and stages it with
+	 *  `git add`, mirroring what resolving via `git mergetool` leaves behind.
+	 */
+	saveRepoConflictResolution: (repoPath: string, filePath: string, content: string) => __TAURI_INVOKE<null>("save_repo_conflict_resolution", { repoPath, filePath, content }),
 };
 
 /* Types */
+/**  One file git reports as unmerged (conflicted) in a repo mid-merge. */
+export type ConflictedFile = {
+	/**  Path relative to the repo root, as git reports it. */
+	path: string,
+};
+
 /**
  *  One contiguous region of the merge, in the coordinates of every pane.
  * 
@@ -186,6 +221,22 @@ export type MergeInputPayload_Serialize = {
 	localBranch: string | null,
 	remoteBranch: string | null,
 };
+
+/**
+ *  Result of scanning a folder the user picked in the empty-state repo
+ *  browser.
+ */
+export type RepoScanResult = 
+/**  Not inside a git repo at all (or `git` isn't on `$PATH`). */
+{ kind: "notARepo" } | 
+/**
+ *  A git repo, but no merge is in progress — or one is, but every
+ *  conflicted path has already been resolved (staged) without being
+ *  committed yet.
+ */
+{ kind: "noMergeInProgress" } | 
+/**  A merge is in progress with 1+ unmerged files. */
+{ kind: "conflicted"; repoRoot: string; files: ConflictedFile[] };
 
 export type ThreeWayMergeResult = {
 	hunks: Hunk[],

@@ -9,7 +9,7 @@ fn main() {
         // Read and validate every input (existence, readability, UTF-8 —
         // i.e. not a binary file) BEFORE the Tauri app or any window exists,
         // so a fatal input error exits 2 without a window ever flashing up.
-        Ok(args) => {
+        Ok(cli::LaunchMode::Merge(args)) => {
             match commands::load_merge_input(&args.base, &args.local, &args.remote, &args.merged) {
                 Ok(mut loaded) => {
                     // Best-effort: branch labels are a nice-to-have, never a
@@ -25,6 +25,10 @@ fn main() {
                 Err(msg) => exit::fatal(&format!("conflate: {msg}")),
             }
         }
+        // Launched with no args (double-click, Dock, Spotlight): still open
+        // a window, just with no merge input loaded. The frontend shows an
+        // empty-state / repo-browser screen instead.
+        Ok(cli::LaunchMode::Empty) => conflate_lib::run_empty(),
         // --help / --version are successful requests, not errors: stdout, exit 0.
         Err(cli::CliError::Help(text) | cli::CliError::Version(text)) => println!("{text}"),
         Err(err) => exit::fatal(&err.to_string()),

@@ -331,6 +331,80 @@ pub fn compute_word_diff_command(old: String, new_text: String) -> Vec<WordDiffO
     compute_word_diff(&old, &new_text)
 }
 
+/// Tauri command: whether this session was launched as a `git mergetool`
+/// invocation (`get_merge_input`/`save_result`/`abort_merge` are usable) or
+/// with no args at all (the frontend shows the empty-state/repo-browser
+/// screen instead). See `crate::LaunchModeMarker`.
+#[tauri::command]
+#[specta::specta]
+pub fn get_launch_mode(marker: State<crate::LaunchModeMarker>) -> bool {
+    marker.is_merge
+}
+
+/// Tauri command: opens a native folder picker for the empty-state repo
+/// browser. `None` if the user cancels.
+#[tauri::command]
+#[specta::specta]
+pub async fn pick_repo_folder(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog().file().pick_folder(move |path| {
+        let _ = tx.send(path);
+    });
+    rx.recv()
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.display().to_string())
+}
+
+/// Tauri command: scans a folder the user picked for a git repo with a
+/// merge in progress, listing any unmerged (conflicted) files.
+#[tauri::command]
+#[specta::specta]
+pub fn scan_repo_for_conflicts(repo_path: String) -> crate::repo_scan::RepoScanResult {
+    crate::repo_scan::scan_repo(Path::new(&repo_path))
+}
+
+/// Tauri command: loads one conflicted file's base/local/remote content
+/// straight from `repo_path`'s git index, for the empty-state repo browser.
+#[tauri::command]
+#[specta::specta]
+pub fn load_conflict_from_repo(
+    repo_path: String,
+    file_path: String,
+) -> Result<MergeInputPayload, String> {
+    crate::repo_scan::load_conflict_from_repo(Path::new(&repo_path), &file_path)
+        .map(|loaded| loaded.payload)
+}
+
+/// Tauri command: writes a conflict resolved via the empty-state repo
+/// browser to its real working-tree file (not a mergetool temp file,
+/// since there is no `$MERGED` path in this flow) and stages it with
+/// `git add`, mirroring what resolving via `git mergetool` leaves behind.
+#[tauri::command]
+#[specta::specta]
+pub fn save_repo_conflict_resolution(
+    repo_path: String,
+    file_path: String,
+    content: String,
+) -> Result<(), String> {
+    let repo_root = Path::new(&repo_path);
+    let target = repo_root.join(&file_path);
+    fs::write(&target, content)
+        .map_err(|e| format!("cannot write {}: {e}", target.display()))?;
+    let output = std::process::Command::new("git")
+        .args(["add", "--", &file_path])
+        .current_dir(repo_root)
+        .output()
+        .map_err(|e| format!("cannot run git add: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git add {file_path} failed: {stderr}"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

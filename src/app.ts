@@ -8,6 +8,7 @@ import {
     devStubMergeResult,
     isTauriRuntime,
 } from './devStub';
+import { type EmptyStateHandle, mountEmptyState } from './emptyState';
 import {
     abortMerge,
     computeThreeWayMerge,
@@ -18,6 +19,13 @@ import {
 import { installKeymap, KEYMAP_BINDINGS } from './keymap';
 import { nextConflict, prevConflict } from './merge/hunkNav';
 import { createThreeWayView, type ThreeWayView } from './merge/threeWayView';
+import {
+    getLaunchMode,
+    loadConflictFromRepo,
+    pickRepoFolder,
+    saveRepoConflictResolution,
+    scanRepoForConflicts,
+} from './repoBrowser';
 import {
     initTheme,
     type ThemeController,
@@ -55,6 +63,36 @@ export interface MountAppOptions {
     initialPaneWidths?: { local: number; remote: number };
     /** Called once a divider drag ends, with the new LOCAL/REMOTE pane widths, so the caller can persist them. */
     onPaneWidthsChange?: (widths: { local: number; remote: number }) => void;
+    /**
+     * Merge input to use instead of calling `get_merge_input` — used by the
+     * empty-state repo browser (`mountRoot`), which already loaded the
+     * conflict straight from a repo's git index.
+     */
+    preloadedInput?: MergeInputPayload;
+    /**
+     * Overrides the default `save_result` IPC call. The repo-browser flow
+     * passes one that writes to the repo's working-tree file and runs
+     * `git add` instead, since there is no `git mergetool` `$MERGED` path in
+     * that flow.
+     */
+    saveOverride?: (
+        content: string,
+        unresolvedCount: number,
+        force: boolean,
+    ) => Promise<void>;
+    /**
+     * Overrides the default `abort_merge` IPC call (which exits the whole
+     * process). The repo-browser flow passes a no-op here: aborting just
+     * means returning to the file list with nothing written.
+     */
+    abortOverride?: () => Promise<void>;
+    /**
+     * Called after a successful save or abort when an override is in use.
+     * The default IPC paths exit the process, so this callback never fires
+     * in a real `git mergetool` session — it exists for the repo-browser
+     * flow, which uses it to return to the empty-state file list.
+     */
+    onSaveOrAbortComplete?: () => void;
 }
 
 /**
@@ -216,11 +254,15 @@ export async function mountApp(
         input = devStubMergeInput();
         mergeResult = devStubMergeResult(input);
     } else {
-        try {
-            input = await getMergeInput();
-        } catch (err) {
-            showError(`Failed to load merge input: ${String(err)}`);
-            return handle;
+        if (options.preloadedInput) {
+            input = options.preloadedInput;
+        } else {
+            try {
+                input = await getMergeInput();
+            } catch (err) {
+                showError(`Failed to load merge input: ${String(err)}`);
+                return handle;
+            }
         }
         try {
             mergeResult = await computeThreeWayMerge(
@@ -387,13 +429,16 @@ export async function mountApp(
         setButtonsDisabled(true);
         setStatus('Saving...', 'pending');
         try {
-            await saveResult(
-                view.resultView.state.doc.toString(),
-                unresolved,
-                force,
-            );
-            // On success the backend exits the process; if we're still here, say so.
+            const content = view.resultView.state.doc.toString();
+            if (options.saveOverride) {
+                await options.saveOverride(content, unresolved, force);
+            } else {
+                await saveResult(content, unresolved, force);
+            }
+            // On success the default (mergetool) path exits the process; if
+            // we're still here, say so.
             setStatus('Saved.', 'ok');
+            options.onSaveOrAbortComplete?.();
         } catch (err) {
             setStatus(`Save failed: ${String(err)}`, 'error');
         } finally {
@@ -421,7 +466,12 @@ export async function mountApp(
         busy = true;
         setButtonsDisabled(true);
         try {
-            await abortMerge();
+            if (options.abortOverride) {
+                await options.abortOverride();
+            } else {
+                await abortMerge();
+            }
+            options.onSaveOrAbortComplete?.();
         } catch (err) {
             setStatus(`Abort failed: ${String(err)}`, 'error');
         } finally {
@@ -485,6 +535,98 @@ export async function mountApp(
     }
 
     return handle;
+}
+
+/**
+ * Entry point `main.ts` calls instead of `mountApp` directly: decides
+ * between the real merge view and the empty-state repo browser.
+ *
+ * - Not a Tauri runtime (dev preview) — today's `mountApp` stub path,
+ *   unchanged.
+ * - A Tauri runtime launched as `git mergetool` (`get_launch_mode` true) —
+ *   today's `mountApp` merge path, unchanged.
+ * - A Tauri runtime launched with no CLI args (`get_launch_mode` false) —
+ *   the empty-state screen, with a repo browser that can open a conflicted
+ *   file straight into the same merge view.
+ */
+export async function mountRoot(
+    root: HTMLElement,
+    options: MountAppOptions = {},
+): Promise<MountAppHandle> {
+    if (!isTauriRuntime() || (await getLaunchMode())) {
+        return mountApp(root, options);
+    }
+    return mountEmptyStateFlow(root, options);
+}
+
+async function mountEmptyStateFlow(
+    root: HTMLElement,
+    options: MountAppOptions,
+): Promise<MountAppHandle> {
+    let repoPath: string | null = null;
+    let current: MountAppHandle = { notifyUpdateFound: () => {} };
+    let pendingUpdate:
+        | Parameters<MountAppHandle['notifyUpdateFound']>[0]
+        | null = null;
+
+    async function rescan(emptyHandle: EmptyStateHandle, path: string) {
+        try {
+            emptyHandle.renderScanResult(await scanRepoForConflicts(path));
+        } catch (err) {
+            emptyHandle.showFileListMessage(
+                `Could not scan repository: ${String(err)}`,
+            );
+        }
+    }
+
+    function showEmptyState(): EmptyStateHandle {
+        const emptyHandle = mountEmptyState(root, {
+            onPickRepo: () => void onPickRepo(emptyHandle),
+            onOpenFile: (filePath) => void onOpenFile(emptyHandle, filePath),
+        });
+        current = { notifyUpdateFound: () => {} };
+        return emptyHandle;
+    }
+
+    async function onPickRepo(emptyHandle: EmptyStateHandle) {
+        const picked = await pickRepoFolder();
+        if (!picked) return;
+        repoPath = picked;
+        await rescan(emptyHandle, picked);
+    }
+
+    async function onOpenFile(emptyHandle: EmptyStateHandle, filePath: string) {
+        if (!repoPath) return;
+        const openRepoPath = repoPath;
+        let input: Awaited<ReturnType<typeof loadConflictFromRepo>>;
+        try {
+            input = await loadConflictFromRepo(openRepoPath, filePath);
+        } catch (err) {
+            emptyHandle.showFileListMessage(
+                `Could not load ${filePath}: ${String(err)}`,
+            );
+            return;
+        }
+        current = await mountApp(root, {
+            ...options,
+            preloadedInput: input,
+            saveOverride: (content) =>
+                saveRepoConflictResolution(openRepoPath, filePath, content),
+            abortOverride: () => Promise.resolve(),
+            onSaveOrAbortComplete: () => {
+                void rescan(showEmptyState(), openRepoPath);
+            },
+        });
+        if (pendingUpdate) current.notifyUpdateFound(pendingUpdate);
+    }
+
+    showEmptyState();
+    return {
+        notifyUpdateFound: (update) => {
+            pendingUpdate = update;
+            current.notifyUpdateFound(update);
+        },
+    };
 }
 
 /**
