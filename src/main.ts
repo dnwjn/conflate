@@ -34,17 +34,35 @@ async function loadPrefsOrDefault(): Promise<{
     }
 }
 
+/**
+ * Restores the persisted window size, re-centering afterwards since
+ * `setSize` keeps the window's current top-left origin rather than growing
+ * from its center. The window is created hidden (`visible: false` in
+ * `tauri.conf.json`) specifically so this resize+recenter — and the
+ * subsequent mount — happen off-screen; `showWindowOnceReady` reveals it
+ * only once everything has settled, avoiding a visible jump/flash.
+ */
 async function restoreWindowSize(size: Prefs['windowSize']): Promise<void> {
     if (!size) return;
     try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const { LogicalSize } = await import('@tauri-apps/api/dpi');
-        await getCurrentWindow().setSize(
-            new LogicalSize(size.width, size.height),
-        );
+        const appWindow = getCurrentWindow();
+        await appWindow.setSize(new LogicalSize(size.width, size.height));
+        await appWindow.center();
     } catch {
         // Not running in a Tauri webview (or the window command is unavailable) —
         // nothing to restore to.
+    }
+}
+
+/** Reveals the window after it's been sized, positioned, and mounted. */
+async function showWindowOnceReady(): Promise<void> {
+    try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        await getCurrentWindow().show();
+    } catch {
+        // Not running in a Tauri webview — nothing to show.
     }
 }
 
@@ -126,25 +144,33 @@ window.addEventListener('DOMContentLoaded', () => {
         // flash of the wrong palette while `mountApp`/`initTheme` spin up.
         applyThemeOverride(prefs.theme);
 
-        await restoreWindowSize(prefs.windowSize);
-        watchWindowSize(store);
+        let app: MountAppHandle;
+        try {
+            await restoreWindowSize(prefs.windowSize);
+            watchWindowSize(store);
 
-        const app = await mountApp(root, {
-            initialTheme: prefs.theme,
-            onThemeOverrideChange: (override) => {
-                if (store) void savePrefTheme(store, override);
-            },
-            setWindowTitle: async (title) => {
-                const { getCurrentWindow } = await import(
-                    '@tauri-apps/api/window'
-                );
-                await getCurrentWindow().setTitle(title);
-            },
-            initialPaneWidths: prefs.paneWidths ?? undefined,
-            onPaneWidthsChange: (widths) => {
-                if (store) void savePrefPaneWidths(store, widths);
-            },
-        });
+            app = await mountApp(root, {
+                initialTheme: prefs.theme,
+                onThemeOverrideChange: (override) => {
+                    if (store) void savePrefTheme(store, override);
+                },
+                setWindowTitle: async (title) => {
+                    const { getCurrentWindow } = await import(
+                        '@tauri-apps/api/window'
+                    );
+                    await getCurrentWindow().setTitle(title);
+                },
+                initialPaneWidths: prefs.paneWidths ?? undefined,
+                onPaneWidthsChange: (widths) => {
+                    if (store) void savePrefPaneWidths(store, widths);
+                },
+            });
+        } finally {
+            // Reveal the window even if sizing or mounting failed above —
+            // it was created hidden (`visible: false`) specifically to let
+            // that setup happen off-screen, so it must never stay invisible.
+            await showWindowOnceReady();
+        }
 
         scheduleBackgroundUpdateCheck(
             root,
