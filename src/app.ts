@@ -1,8 +1,7 @@
-import packageJson from '../package.json';
-import brandMarkIcon from './assets/icons/brand-mark.svg?raw';
 import redoIcon from './assets/icons/redo.svg?raw';
 import undoIcon from './assets/icons/undo.svg?raw';
 import type { MergeInputPayload, ThreeWayMergeResult } from './bindings';
+import { buildBrandHeader, createUpdateChecker } from './brandHeader';
 import {
     devStubMergeInput,
     devStubMergeResult,
@@ -34,7 +33,6 @@ import {
     themeIndicatorLabel,
 } from './theme';
 import {
-    checkForUpdate,
     downloadAndInstallUpdate,
     restartToApplyUpdate,
     type UpdateInfo,
@@ -129,20 +127,7 @@ export async function mountApp(
     root.innerHTML = '';
     root.classList.add('app');
 
-    const toolbar = el('header', 'toolbar');
-    const brand = el('div', 'toolbar-brand');
-    const versionButton = button(
-        `v${packageJson.version}`,
-        'brand-version',
-        'Check for updates',
-    );
-    const brandMark = el('span', 'brand-mark');
-    brandMark.innerHTML = brandMarkIcon;
-    brand.append(
-        brandMark,
-        el('span', 'brand-name', 'Conflate'),
-        versionButton,
-    );
+    const { toolbar, versionButton } = buildBrandHeader();
     const prevButton = button('‹', 'toolbar-button', 'Previous conflict (⌥⌘,)');
     const nextButton = button('›', 'toolbar-button', 'Next conflict (⌥⌘.)');
     const counter = el('span', 'conflict-counter', '');
@@ -164,7 +149,6 @@ export async function mountApp(
     );
     const filePathLabel = el('span', 'toolbar-filepath', '');
     toolbar.append(
-        brand,
         el('span', 'toolbar-divider'),
         filePathLabel,
         el('span', 'toolbar-divider'),
@@ -230,24 +214,27 @@ export async function mountApp(
 
     let view: ThreeWayView | null = null;
     let busy = false;
-    let foundUpdate: UpdateInfo | null = null;
 
-    /** Marks an update as found regardless of which path discovered it (an in-app check or the background check that shows its own banner). */
-    function notifyUpdateFound(update: UpdateInfo) {
-        foundUpdate = update;
-        versionButton.classList.add('has-update');
-    }
-    const handle: MountAppHandle = { notifyUpdateFound };
-
-    abortButton.addEventListener('click', () => void onAbort());
-    saveButton.addEventListener('click', () => void onSave());
-
-    // --- Load ---------------------------------------------------------------
     // Outside a real Tauri webview (e.g. `npm run dev` opened as a plain
     // browser tab) there's no backend to call and nothing to merge, so skip
     // straight to a stub merge for UI preview instead of surfacing the raw
     // "nothing to call invoke() on" failure.
     const devMode = !isTauriRuntime();
+
+    const updateChecker = createUpdateChecker({
+        versionButton,
+        devMode,
+        setStatus,
+        onUpdateFound: (update) => showUpdateModal(root, update),
+    });
+    const handle: MountAppHandle = {
+        notifyUpdateFound: updateChecker.notifyUpdateFound,
+    };
+
+    abortButton.addEventListener('click', () => void onAbort());
+    saveButton.addEventListener('click', () => void onSave());
+
+    // --- Load ---------------------------------------------------------------
     let input: MergeInputPayload;
     let mergeResult: ThreeWayMergeResult;
     if (devMode) {
@@ -320,7 +307,6 @@ export async function mountApp(
         setWordDiffEnabled(!wordDiffToggle.classList.contains('is-on')),
     );
     shortcutsButton.addEventListener('click', () => showShortcutsHelp(root));
-    versionButton.addEventListener('click', () => void onCheckForUpdates());
     // Not torn down: the app occupies its window for the whole merge-tool
     // process lifetime (same assumption the ad-hoc listener this replaces
     // made), so there is no unmount point to call the returned cleanup from.
@@ -509,31 +495,6 @@ export async function mountApp(
         saveButton.disabled = disabled || !view;
     }
 
-    /**
-     * An explicit, non-silent check: unlike `main.ts`'s background launch
-     * check (which stays quiet unless it finds something), this always
-     * says something, even "up to date". If this same `mountApp` instance
-     * already found an update via an earlier click, reopen it instead of
-     * checking again.
-     */
-    async function onCheckForUpdates() {
-        if (devMode) return;
-        if (foundUpdate) {
-            showUpdateModal(root, foundUpdate);
-            return;
-        }
-        versionButton.disabled = true;
-        setStatus('Checking for updates...', 'pending');
-        const update = await checkForUpdate();
-        versionButton.disabled = false;
-        if (update) {
-            notifyUpdateFound(update);
-            showUpdateModal(root, update);
-        } else {
-            setStatus(`Up to date (v${packageJson.version})`, 'ok');
-        }
-    }
-
     return handle;
 }
 
@@ -583,8 +544,10 @@ async function mountEmptyStateFlow(
         const emptyHandle = mountEmptyState(root, {
             onPickRepo: () => void onPickRepo(emptyHandle),
             onOpenFile: (filePath) => void onOpenFile(emptyHandle, filePath),
+            onUpdateFound: (update) => showUpdateModal(root, update),
         });
-        current = { notifyUpdateFound: () => {} };
+        current = emptyHandle;
+        if (pendingUpdate) current.notifyUpdateFound(pendingUpdate);
         return emptyHandle;
     }
 

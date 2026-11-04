@@ -167,3 +167,51 @@ test('saving a repo-opened conflict calls save_repo_conflict_resolution and retu
         'No merge in progress',
     );
 });
+
+test('an update found via notifyUpdateFound carries its has-update dot across empty-state <-> merge-view transitions', async () => {
+    mockIPC((cmd) => {
+        if (cmd === 'get_launch_mode') return false;
+        if (cmd === 'pick_repo_folder') return '/repo';
+        if (cmd === 'scan_repo_for_conflicts') {
+            return {
+                kind: 'conflicted',
+                repoRoot: '/repo',
+                files: [{ path: 'a.txt' }],
+            };
+        }
+        if (cmd === 'load_conflict_from_repo') {
+            return {
+                base: 'a',
+                local: 'L',
+                remote: 'R',
+                languageHint: null,
+                fileName: 'a.txt',
+                fullPath: '/repo/a.txt',
+            };
+        }
+        if (cmd === 'compute_three_way_merge_command') return mergeResult;
+        if (cmd === 'compute_word_diff_command') return [];
+        return null;
+    });
+
+    const handle = await mountRoot(root);
+    // Found while the empty state is showing (e.g. main.ts's background check).
+    handle.notifyUpdateFound({
+        version: '9.9.9',
+        currentVersion: '0.1.0',
+        downloadAndInstall: vi.fn(),
+    });
+    expect(
+        root.querySelector('.brand-version')?.classList.contains('has-update'),
+    ).toBe(true);
+
+    root.querySelector<HTMLButtonElement>('.btn-primary')!.click();
+    await flush();
+    root.querySelector<HTMLButtonElement>('.empty-state-file-row')!.click();
+    await flush();
+
+    // Now in the merge view: the dot must have carried over.
+    expect(
+        root.querySelector('.brand-version')?.classList.contains('has-update'),
+    ).toBe(true);
+});

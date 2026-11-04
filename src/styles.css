@@ -1057,8 +1057,9 @@ button:focus-visible {
 
 /* ---- Empty state / repo browser (launched with no CLI args) ------------- */
 
-#app.app.empty-state-app {
-	display: block;
+.empty-state-host {
+	flex: 1;
+	min-height: 0;
 	overflow: auto;
 }
 
