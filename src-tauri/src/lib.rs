@@ -3,6 +3,7 @@ pub mod commands;
 pub mod diff;
 pub mod exit;
 pub mod git_labels;
+pub mod repo_scan;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -29,6 +30,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::abort_merge,
             commands::compute_three_way_merge_command,
             commands::compute_word_diff_command,
+            commands::get_launch_mode,
+            commands::pick_repo_folder,
+            commands::scan_repo_for_conflicts,
+            commands::load_conflict_from_repo,
+            commands::save_repo_conflict_resolution,
         ])
 }
 
@@ -45,29 +51,39 @@ fn export_bindings() {
         .expect("failed to export typescript bindings");
 }
 
-/// Builds and runs the app. `loaded` is the merge input `main.rs` already
-/// read and validated before any window exists (fatal input errors exit 2
-/// there, never here).
+/// Marks which launch mode the app is in, so the frontend can call
+/// `get_launch_mode` instead of guessing from a failed `get_merge_input`
+/// call. Managed in both `run()` (`is_merge: true`) and `run_empty()`
+/// (`is_merge: false`).
+pub struct LaunchModeMarker {
+    pub is_merge: bool,
+}
+
+/// Builds the Tauri app shared by both launch modes (plugins, invoke
+/// handler, window build) and runs its event loop. `configure` adds
+/// whatever managed state is specific to the launch mode (merge input vs.
+/// just the marker) before `.build()` is called.
 ///
 /// Exit-code safety: the only ways to exit 0 ("resolved") are `save_result`'s
 /// explicit `app.exit(0)`. Every other way out — closing the window, ⌘W,
 /// ⌘Q / app-menu Quit — exits 1 ("aborted"), so git never treats a file that
 /// may still hold conflict markers as resolved. See `exit::exit_request_override`
 /// and `exit::exit_code_on_loop_exit`.
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run(args: cli::Args, loaded: commands::LoadedInput) {
+fn run_app(
+    configure: impl FnOnce(tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry>,
+) {
     let builder = specta_builder();
 
     #[cfg(debug_assertions)]
     export_bindings();
 
-    let app = tauri::Builder::default()
+    let base = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(args)
-        .manage(loaded)
+        .plugin(tauri_plugin_dialog::init());
+    let app = configure(base)
         .invoke_handler(builder.invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -97,6 +113,27 @@ pub fn run(args: cli::Args, loaded: commands::LoadedInput) {
         }
         _ => {}
     });
+}
+
+/// Builds and runs the app for a `git mergetool`-style invocation. `loaded`
+/// is the merge input `main.rs` already read and validated before any window
+/// exists (fatal input errors exit 2 there, never here).
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run(args: cli::Args, loaded: commands::LoadedInput) {
+    run_app(|builder| {
+        builder
+            .manage(args)
+            .manage(loaded)
+            .manage(LaunchModeMarker { is_merge: true })
+    });
+}
+
+/// Builds and runs the app when launched with no CLI args at all (double-click,
+/// Dock, Spotlight). No `Args`/`LoadedInput` is managed — the frontend calls
+/// `get_launch_mode` to find out and shows the empty-state/repo-browser
+/// screen instead of the merge view.
+pub fn run_empty() {
+    run_app(|builder| builder.manage(LaunchModeMarker { is_merge: false }));
 }
 
 #[cfg(test)]

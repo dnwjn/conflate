@@ -1,4 +1,4 @@
-import { type MountAppHandle, mountApp, wireUpdateUi } from './app';
+import { type MountAppHandle, mountRoot, wireUpdateUi } from './app';
 import {
     DEFAULT_PREFS,
     loadPrefs,
@@ -149,7 +149,7 @@ window.addEventListener('DOMContentLoaded', () => {
             await restoreWindowSize(prefs.windowSize);
             watchWindowSize(store);
 
-            app = await mountApp(root, {
+            app = await mountRoot(root, {
                 initialTheme: prefs.theme,
                 onThemeOverrideChange: (override) => {
                     if (store) void savePrefTheme(store, override);

@@ -23,6 +23,16 @@ pub struct Args {
     pub merged: PathBuf,
 }
 
+/// What `main.rs` found on the command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchMode {
+    /// `git mergetool`-style invocation: exactly 4 valid, readable args.
+    Merge(Args),
+    /// No positional args at all — launched directly (double-click, Dock,
+    /// Spotlight) rather than by git's mergetool machinery.
+    Empty,
+}
+
 #[derive(Debug)]
 pub enum CliError {
     /// `--help` was requested. Not an error: the text goes to stdout, exit 0.
@@ -69,7 +79,17 @@ impl std::error::Error for CliError {}
 /// Parses `argv` (including the program name at index 0) and validates that
 /// the `local` and `remote` inputs can be read. `base` is intentionally not
 /// checked: a missing base signals the empty-base (add/add) case.
-pub fn parse_args(argv: &[String]) -> Result<Args, CliError> {
+///
+/// `argv` with nothing but the program name (no positional args, no flags —
+/// the shape of a double-click/Dock/Spotlight launch) is `LaunchMode::Empty`,
+/// not an error: conflate still opens a window in that case and lets the
+/// frontend show the repo-browser empty state instead of exiting. Anything
+/// else that isn't exactly 4 valid, readable positional args (1-3 args, bad
+/// flags, unreadable local/remote) is still a `CliError`, exactly as before.
+pub fn parse_args(argv: &[String]) -> Result<LaunchMode, CliError> {
+    if argv.len() == 1 {
+        return Ok(LaunchMode::Empty);
+    }
     let args = Args::try_parse_from(argv).map_err(|e| {
         use clap::error::ErrorKind;
         match e.kind() {
@@ -80,7 +100,7 @@ pub fn parse_args(argv: &[String]) -> Result<Args, CliError> {
     })?;
     check_readable("local", &args.local)?;
     check_readable("remote", &args.remote)?;
-    Ok(args)
+    Ok(LaunchMode::Merge(args))
 }
 
 fn check_readable(role: &'static str, path: &Path) -> Result<(), CliError> {
@@ -122,6 +142,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn no_args_is_empty_launch_mode() {
+        let argv = vec!["conflate".into()];
+        assert!(matches!(parse_args(&argv), Ok(LaunchMode::Empty)));
+    }
+
+    #[test]
     fn parses_four_positional_args() {
         // local/remote must exist, so create real files (brief used bare names, which now fail validation).
         let dir = tempfile::tempdir().unwrap();
@@ -136,8 +162,11 @@ mod tests {
             remote.to_str().unwrap().into(),
             "merged.txt".into(),
         ];
-        let args = parse_args(&argv).unwrap();
-        assert_eq!(args.local, local);
+        let mode = parse_args(&argv).unwrap();
+        match mode {
+            LaunchMode::Merge(args) => assert_eq!(args.local, local),
+            LaunchMode::Empty => panic!("expected LaunchMode::Merge, got Empty"),
+        }
     }
 
     #[test]
