@@ -30,6 +30,32 @@ function isAutoMergeable(hunk: Hunk): boolean {
     );
 }
 
+/**
+ * Whether a hunk's current (live) text in the result document still matches
+ * one of its known source texts — local's, remote's, or both stacked
+ * together (the "accept both" case) — modulo whitespace (consistent with
+ * `isAutoMergeable`'s own whitespace-insensitive comparison). `false` means
+ * the hunk was hand-edited/pasted into since being pulled/auto-merged, so its
+ * content no longer represents a choice the merge/user explicitly made.
+ *
+ * Only meaningful for a hunk that is currently shown as resolved/auto-merged
+ * (green) — an unresolved conflict's content is expected to diverge from
+ * both sides until the user picks one, so this is not consulted there.
+ */
+export function hunkContentMatchesSource(
+    doc: Text,
+    range: { from: number; to: number },
+    hunk: Hunk,
+): boolean {
+    const text = doc.sliceString(range.from, range.to).trim();
+    const candidates = [
+        hunk.local_text.trim(),
+        hunk.remote_text.trim(),
+        (hunk.local_text + hunk.remote_text).trim(),
+    ];
+    return candidates.includes(text);
+}
+
 interface TrackedRange {
     from: number;
     to: number;

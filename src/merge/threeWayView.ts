@@ -45,7 +45,8 @@ import type {
     ThreeWayMergeResult,
     WordDiffOp,
 } from '../bindings';
-import { ConflictModel } from './conflictModel';
+import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
+import { computeConnectorGeometry, ribbonPath } from './hunkConnectors';
 import { hunkIndexAt as hunkIndexForCursor } from './hunkNav';
 import { computePullChange } from './pullChange';
 import { wordDiffRanges } from './wordDiff';
@@ -415,8 +416,22 @@ export function createThreeWayView(
     const makeDivider = (resizes: 'local' | 'remote') => {
         const divider = document.createElement('div');
         divider.className = 'tw-divider';
+        const spacer = document.createElement('div');
+        spacer.className = 'tw-divider-spacer';
+        const body = document.createElement('div');
+        body.className = 'tw-divider-body';
+        const svg = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'svg',
+        );
+        svg.setAttribute('class', 'tw-connector-svg');
+        body.appendChild(svg);
+        divider.append(spacer, body);
         divider.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
+            // A ribbon connector owns its own click-to-navigate; don't start
+            // a resize drag when the pointer came down on one.
+            if (event.target instanceof SVGPathElement) return;
             event.preventDefault();
             const pane = (resizes === 'local' ? localPane : remotePane).root;
             const startX = event.clientX;
@@ -426,8 +441,8 @@ export function createThreeWayView(
                 resizes === 'local' ? remotePane : localPane
             ).root.getBoundingClientRect().width;
             const dividerWidths =
-                localDivider.getBoundingClientRect().width +
-                remoteDivider.getBoundingClientRect().width;
+                localDividerParts.divider.getBoundingClientRect().width +
+                remoteDividerParts.divider.getBoundingClientRect().width;
             const maxWidth = Math.max(
                 MIN_SIDE_PANE_WIDTH,
                 containerWidth -
@@ -464,16 +479,16 @@ export function createThreeWayView(
                 remote: remotePane.root.getBoundingClientRect().width,
             });
         });
-        return divider;
+        return { divider, svg };
     };
     const localPane = makePane('local', 'LOCAL', options.localLabel ?? 'HEAD');
     if (options.paneWidths)
         localPane.root.style.flexBasis = `${options.paneWidths.local}px`;
-    const localDivider = makeDivider('local');
-    panes.appendChild(localDivider);
+    const localDividerParts = makeDivider('local');
+    panes.appendChild(localDividerParts.divider);
     const resultPane = makePane('result', 'RESULT', 'editable');
-    const remoteDivider = makeDivider('remote');
-    panes.appendChild(remoteDivider);
+    const remoteDividerParts = makeDivider('remote');
+    panes.appendChild(remoteDividerParts.divider);
     const remotePane = makePane('remote', 'REMOTE', options.remoteLabel ?? '');
     if (options.paneWidths)
         remotePane.root.style.flexBasis = `${options.paneWidths.remote}px`;
@@ -539,12 +554,26 @@ export function createThreeWayView(
             const range = conflictModel.rangeFor(i);
             if (range.from > doc.length || range.to > doc.length) continue;
             const resolved = conflictModel.isResolved(i);
+            // Content-aware highlighting: a resolved/auto-merged (green)
+            // hunk whose live text no longer matches any source it could
+            // have come from (local, remote, or both stacked) has been hand-
+            // edited/pasted into since — flag it distinctly rather than
+            // silently keeping the stale "resolved" color. Unresolved
+            // conflicts (yellow) are untouched: "needs a decision" stays
+            // true regardless of what the user has typed in the meantime.
+            const edited =
+                (hunk.kind !== 'Conflict' || resolved) &&
+                !hunkContentMatchesSource(doc, range, hunk);
             const cls =
                 hunk.kind === 'Conflict'
                     ? resolved
-                        ? 'cm-hunk-resolved'
+                        ? edited
+                            ? 'cm-hunk-edited'
+                            : 'cm-hunk-resolved'
                         : 'cm-hunk-conflict'
-                    : 'cm-hunk-auto';
+                    : edited
+                      ? 'cm-hunk-edited'
+                      : 'cm-hunk-auto';
             const covering = hunkIsCovering(i);
             const firstLine = doc.lineAt(range.from);
             if (covering) {
@@ -581,11 +610,13 @@ export function createThreeWayView(
                 open ||
                 computePullChange(doc, range, hunk.remote_text, covering) !==
                     null;
-            const pill = conflictModel.wasAutoMerged(i)
-                ? 'auto-merged'
-                : hunk.kind === 'Conflict' && resolved
-                  ? 'resolved'
-                  : null;
+            const pill = edited
+                ? 'edited'
+                : conflictModel.wasAutoMerged(i)
+                  ? 'auto-merged'
+                  : hunk.kind === 'Conflict' && resolved
+                    ? 'resolved'
+                    : null;
             if (canPullLocal || canPullRemote || pill) {
                 decos.push(
                     Decoration.widget({
@@ -723,6 +754,11 @@ export function createThreeWayView(
         chunksBuilt = true;
         pendingChanges = null;
         pushSideDecorations();
+        // Not scheduled via scheduleConnectorRender: rediff() itself already
+        // runs inside a debounced frame (scheduleRediff) or an explicit
+        // flush, so rendering connectors synchronously here avoids queuing a
+        // second, redundant frame request on every edit.
+        renderConnectors();
     }
 
     function pushSideDecorations() {
@@ -801,6 +837,77 @@ export function createThreeWayView(
             view.dispatch({
                 effects: setSideDecorations.of(Decoration.set(decos, true)),
             });
+        }
+    }
+
+    // --- Connector ribbons (visual mapping of side lines to result lines) ---
+    // One SVGPathElement per divider, keyed by hunk index and reused across
+    // frames (hunks.length never changes post-mount, so the pool is a fixed
+    // size allocated once).
+    const localPathPool: SVGPathElement[] = hunks.map((_, i) =>
+        makeConnectorPath(localDividerParts.svg, i),
+    );
+    const remotePathPool: SVGPathElement[] = hunks.map((_, i) =>
+        makeConnectorPath(remoteDividerParts.svg, i),
+    );
+    function makeConnectorPath(
+        svg: SVGSVGElement,
+        hunkIndex: number,
+    ): SVGPathElement {
+        const path = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'path',
+        );
+        path.style.display = 'none';
+        path.addEventListener('click', () => focusHunk(hunkIndex));
+        svg.appendChild(path);
+        return path;
+    }
+
+    let connectorFrame: number | null = null;
+    function scheduleConnectorRender() {
+        if (destroyed) return;
+        if (connectorFrame !== null) scheduler.cancel(connectorFrame);
+        connectorFrame = scheduler.request(() => {
+            connectorFrame = null;
+            renderConnectors();
+        });
+    }
+
+    function renderConnectors() {
+        if (destroyed) return;
+        const geometry = computeConnectorGeometry(
+            hunks,
+            conflictModel,
+            hunkIsCovering,
+            localView,
+            resultView,
+            remoteView,
+        );
+        const shown = new Set(geometry.map((g) => g.index));
+        const localWidth = localDividerParts.svg.clientWidth;
+        const remoteWidth = remoteDividerParts.svg.clientWidth;
+        for (const g of geometry) {
+            const cls = `tw-connector tw-connector-${g.style}`;
+            const localPath = localPathPool[g.index];
+            localPath.setAttribute('class', cls);
+            localPath.setAttribute(
+                'd',
+                ribbonPath(localWidth, g.local, g.result),
+            );
+            localPath.style.display = '';
+            const remotePath = remotePathPool[g.index];
+            remotePath.setAttribute('class', cls);
+            remotePath.setAttribute(
+                'd',
+                ribbonPath(remoteWidth, g.result, g.remote),
+            );
+            remotePath.style.display = '';
+        }
+        for (let i = 0; i < hunks.length; i++) {
+            if (shown.has(i)) continue;
+            localPathPool[i].style.display = 'none';
+            remotePathPool[i].style.display = 'none';
         }
     }
 
@@ -932,6 +1039,7 @@ export function createThreeWayView(
             );
             view.scrollDOM.scrollTop = sideBlock.top + offsetInto;
         }
+        scheduleConnectorRender();
     }
     const onResultScroll = () => syncScroll();
     resultView.scrollDOM.addEventListener('scroll', onResultScroll, {
@@ -950,6 +1058,14 @@ export function createThreeWayView(
     remoteView.scrollDOM.addEventListener('wheel', onSideWheel, {
         passive: false,
     });
+    // A pane resize (divider drag, double-click reset, or window resize)
+    // changes the dividers' pixel height/width; snap connectors to it
+    // immediately rather than waiting for the next scroll/edit.
+    const connectorResizeObserver =
+        typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => scheduleConnectorRender())
+            : null;
+    connectorResizeObserver?.observe(panes);
 
     // --- Header ---------------------------------------------------------------
     function updateHeader() {
@@ -1145,6 +1261,9 @@ export function createThreeWayView(
             destroyed = true;
             if (frame !== null) scheduler.cancel(frame);
             frame = null;
+            if (connectorFrame !== null) scheduler.cancel(connectorFrame);
+            connectorFrame = null;
+            connectorResizeObserver?.disconnect();
             resultView.scrollDOM.removeEventListener('scroll', onResultScroll);
             localView.scrollDOM.removeEventListener('wheel', onSideWheel);
             remoteView.scrollDOM.removeEventListener('wheel', onSideWheel);

@@ -1,7 +1,7 @@
 import { ChangeSet, Text } from '@codemirror/state';
 import { expect, test } from 'vitest';
 import type { Hunk, HunkKind } from '../bindings';
-import { ConflictModel } from './conflictModel';
+import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
 
 /**
  * Builds a full `Hunk` from just the fields a test cares about. The real
@@ -321,4 +321,64 @@ test('hunkCount, setRange and markUnresolved', () => {
     model.markUnresolved(1);
     expect(model.isResolved(1)).toBe(false);
     expect(model.unresolvedCount()).toBe(1);
+});
+
+test('hunkContentMatchesSource', () => {
+    const hunk = makeHunk({
+        start_line: 0,
+        end_line: 1,
+        kind: 'Conflict',
+        local_text: 'local two\n',
+        remote_text: 'remote two\n',
+    });
+
+    // matches local
+    const localDoc = Text.of(['local two']);
+    expect(
+        hunkContentMatchesSource(
+            localDoc,
+            { from: 0, to: localDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // matches remote
+    const remoteDoc = Text.of(['remote two']);
+    expect(
+        hunkContentMatchesSource(
+            remoteDoc,
+            { from: 0, to: remoteDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // matches stacked local+remote (accept-both)
+    const stackedDoc = Text.of(['local two', 'remote two']);
+    expect(
+        hunkContentMatchesSource(
+            stackedDoc,
+            { from: 0, to: stackedDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // whitespace-only difference still matches (trimmed comparison)
+    const trailingSpaceDoc = Text.of(['local two ']);
+    expect(
+        hunkContentMatchesSource(
+            trailingSpaceDoc,
+            { from: 0, to: trailingSpaceDoc.length },
+            hunk,
+        ),
+    ).toBe(true);
+
+    // genuinely different content does not match
+    const editedDoc = Text.of(['something else']);
+    expect(
+        hunkContentMatchesSource(
+            editedDoc,
+            { from: 0, to: editedDoc.length },
+            hunk,
+        ),
+    ).toBe(false);
 });
