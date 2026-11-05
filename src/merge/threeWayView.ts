@@ -111,6 +111,13 @@ export interface ThreeWayView {
      */
     pullBoth(hunkIndex: number): boolean;
     /**
+     * PhpStorm-style "Accept Left"/"Accept Right": replaces the ENTIRE
+     * result document with the full local or full remote file, and marks
+     * every hunk resolved. For the caller to save and close right after —
+     * not meant to be followed by further per-hunk edits.
+     */
+    acceptWholeSide(side: Side): void;
+    /**
      * Index of the hunk the result cursor at offset `pos` is on (hunks tile
      * the document). A zero-width conflict at `pos` wins over the hunk that
      * starts at the same offset after it — see `hunkNav.hunkIndexAt`.
@@ -548,6 +555,11 @@ export function createThreeWayView(
     function buildResultDecorations(view: EditorView): DecorationSet {
         const doc = view.state.doc;
         const decos: Range<Decoration>[] = [];
+        const selectedIndex = hunkIndexForCursor(
+            conflictModel,
+            hunks,
+            view.state.selection.main.head,
+        );
         for (let i = 0; i < hunks.length; i++) {
             const hunk = hunks[i];
             if (hunk.kind === 'Unchanged') continue;
@@ -578,10 +590,19 @@ export function createThreeWayView(
             const firstLine = doc.lineAt(range.from);
             if (covering) {
                 const lastLine = doc.lineAt(range.to);
+                const selected = i === selectedIndex;
                 for (let n = firstLine.number; n <= lastLine.number; n++) {
                     let lineCls = cls;
                     if (n === firstLine.number) lineCls += ' cm-hunk-first';
                     if (n === lastLine.number) lineCls += ' cm-hunk-last';
+                    if (selected) {
+                        if (n === firstLine.number)
+                            lineCls += ' cm-hunk-selected-first';
+                        if (n === lastLine.number)
+                            lineCls += ' cm-hunk-selected-last';
+                        if (n !== firstLine.number && n !== lastLine.number)
+                            lineCls += ' cm-hunk-selected-middle';
+                    }
                     decos.push(
                         Decoration.line({ class: lineCls }).range(
                             doc.line(n).from,
@@ -646,6 +667,7 @@ export function createThreeWayView(
             update(update: ViewUpdate) {
                 const relevant =
                     update.docChanged ||
+                    update.selectionSet ||
                     update.transactions.some((tr) =>
                         tr.effects.some((e) => e.is(hunkStateEffect)),
                     );
@@ -1000,44 +1022,84 @@ export function createThreeWayView(
         return found;
     }
 
+    /**
+     * Maps the result pane's current scroll position into each side pane by
+     * the PIXEL FRACTION through the current hunk, rather than a single
+     * nearest-line pick: get the hunk's own pixel span in the result pane
+     * (via `lineBlockAt`), find how far through it `scrollTop` sits, then
+     * apply that same fraction to the hunk's pixel span in each side pane.
+     * This re-anchors on every call instead of accumulating drift, so it
+     * stays visually locked even when wrapped-line heights differ between
+     * panes (a fixed line-index mapping would not).
+     */
     function syncScroll() {
         const scrollTop = resultView.scrollDOM.scrollTop;
         const block = resultView.lineBlockAtHeight(scrollTop);
         const offsetInto = scrollTop - block.top;
         const resultDoc = resultView.state.doc;
-        const resultLine = resultDoc.lineAt(block.from).number - 1;
         const index = hunkShownAt(block.from);
         for (const side of ['local', 'remote'] as const) {
             const view = side === 'local' ? localView : remoteView;
-            let sideLine = resultLine;
-            if (index >= 0) {
-                const hunk = hunks[index];
-                const hunkStart =
-                    resultDoc.lineAt(conflictModel.rangeFor(index).from)
-                        .number - 1;
-                const start =
-                    side === 'local'
-                        ? hunk.local_start_line
-                        : hunk.remote_start_line;
-                const end =
-                    side === 'local'
-                        ? hunk.local_end_line
-                        : hunk.remote_end_line;
-                sideLine =
-                    start +
-                    Math.min(
-                        resultLine - hunkStart,
-                        Math.max(end - start - 1, 0),
-                    );
+            if (index < 0) {
+                view.scrollDOM.scrollTop = scrollTop;
+                continue;
             }
-            const lineNo = Math.max(
+            const hunk = hunks[index];
+            const resultRange = conflictModel.rangeFor(index);
+            const resultFromLine = Math.min(
+                resultDoc.lineAt(Math.min(resultRange.from, resultDoc.length))
+                    .number,
+                resultDoc.lines,
+            );
+            const resultToLine = Math.max(
+                resultDoc.lineAt(
+                    Math.min(
+                        Math.max(resultRange.to, resultRange.from),
+                        resultDoc.length,
+                    ),
+                ).number,
+                resultFromLine,
+            );
+            const resultTop = resultView.lineBlockAt(
+                resultDoc.line(resultFromLine).from,
+            ).top;
+            const resultBottomBlock = resultView.lineBlockAt(
+                resultDoc.line(resultToLine).from,
+            );
+            const resultHeight = Math.max(
+                resultBottomBlock.top + resultBottomBlock.height - resultTop,
                 1,
-                Math.min(sideLine + 1, view.state.doc.lines),
             );
-            const sideBlock = view.lineBlockAt(
-                view.state.doc.line(lineNo).from,
+            const fraction = Math.min(
+                Math.max((scrollTop - resultTop) / resultHeight, 0),
+                1,
             );
-            view.scrollDOM.scrollTop = sideBlock.top + offsetInto;
+
+            const sideDoc = view.state.doc;
+            const start =
+                side === 'local'
+                    ? hunk.local_start_line
+                    : hunk.remote_start_line;
+            const end =
+                side === 'local' ? hunk.local_end_line : hunk.remote_end_line;
+            const sideFromLine = Math.max(
+                1,
+                Math.min(start + 1, sideDoc.lines),
+            );
+            const sideToLine = Math.max(
+                sideFromLine,
+                Math.min(end, sideDoc.lines),
+            );
+            const sideTop = view.lineBlockAt(
+                sideDoc.line(sideFromLine).from,
+            ).top;
+            const sideBottomBlock = view.lineBlockAt(
+                sideDoc.line(sideToLine).from,
+            );
+            const sideHeight =
+                sideBottomBlock.top + sideBottomBlock.height - sideTop;
+            view.scrollDOM.scrollTop =
+                sideTop + fraction * sideHeight + offsetInto;
         }
         scheduleConnectorRender();
     }
@@ -1046,11 +1108,15 @@ export function createThreeWayView(
         passive: true,
     });
     // Vertical wheel over a side pane scrolls the result instead, which then
-    // drives both sides — keeps all three panes locked together.
+    // drives both sides — keeps all three panes locked together. Synced
+    // immediately in the same handler (not left to the async `scroll` event
+    // alone) so there's no one-frame lag between the wheel input and the
+    // other two panes catching up.
     const onSideWheel = (event: WheelEvent) => {
         if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
         event.preventDefault();
         resultView.scrollDOM.scrollTop += event.deltaY;
+        syncScroll();
     };
     localView.scrollDOM.addEventListener('wheel', onSideWheel, {
         passive: false,
@@ -1147,13 +1213,13 @@ export function createThreeWayView(
      * PhpStorm-style "accept this side": like `pullHunk`, but if the OTHER
      * side is already cleanly in place (the hunk's live range holds exactly
      * that side's text, not something hand-edited away from it) this
-     * appends `side` after it instead of replacing it — so accepting local
-     * then remote (in either order) keeps both, always arranged
-     * local-then-remote (see `pullBoth`'s doc comment for why that order).
-     * Falls back to a plain `pullHunk` replace whenever that isn't
-     * representable — the first pull on a hunk, accepting the same side
-     * again, or a result already hand-edited away from either side's exact
-     * text — since stacking isn't always possible.
+     * appends `side` after it instead of replacing it — so accepting one
+     * side then the other (in either order) keeps both, stacked in CLICK
+     * ORDER: the side already in place stays on top, the side just accepted
+     * goes below it. Falls back to a plain `pullHunk` replace whenever that
+     * isn't representable — the first pull on a hunk, accepting the same
+     * side again, or a result already hand-edited away from either side's
+     * exact text — since stacking isn't always possible.
      */
     function acceptSide(hunkIndex: number, side: Side): boolean {
         const hunk = hunks[hunkIndex];
@@ -1176,9 +1242,11 @@ export function createThreeWayView(
         const stacking =
             resultView.state.sliceDoc(range.from, range.to) === otherBody;
         if (!stacking) return pullHunk(hunkIndex, side);
+        // `otherSide` is already in place (it's what made `stacking` true
+        // above), so it stays on top; `side`, just accepted now, goes below.
         return pullText(
             hunkIndex,
-            hunk.local_text + hunk.remote_text,
+            otherText + sideText(hunkIndex, side),
             `input.pull.${side}`,
         );
     }
@@ -1205,6 +1273,46 @@ export function createThreeWayView(
             hunk.local_text + hunk.remote_text,
             'input.pull.both',
         );
+    }
+
+    /**
+     * Whole-file accept: replaces the result doc outright with `side`'s
+     * full text and marks every hunk resolved in the same transaction. The
+     * hunks' tracked ranges no longer correspond to anything meaningful
+     * once the whole document has been replaced wholesale (unlike a
+     * per-hunk pull), so they're all collapsed to a zero-width point —
+     * harmless, since `buildResultDecorations` already skips any hunk whose
+     * range falls outside the (now different-length) document, and the
+     * caller saves and closes right after this, with no further per-hunk
+     * interaction expected.
+     */
+    function acceptWholeSide(side: Side): void {
+        const fullText = (
+            side === 'local' ? localView : remoteView
+        ).state.doc.toString();
+        const effects = hunks.map((_, index) => {
+            const prev: HunkSnapshot = {
+                range: conflictModel.rangeFor(index),
+                resolved: conflictModel.isResolved(index),
+                coversLines: coversLines[index],
+            };
+            return hunkStateEffect.of({
+                index,
+                range: { from: 0, to: 0 },
+                resolved: true,
+                coversLines: false,
+                prev,
+            });
+        });
+        resultView.dispatch({
+            changes: {
+                from: 0,
+                to: resultView.state.doc.length,
+                insert: fullText,
+            },
+            effects,
+            userEvent: `input.acceptWhole.${side}`,
+        });
     }
 
     function focusHunk(hunkIndex: number) {
@@ -1236,6 +1344,7 @@ export function createThreeWayView(
         pullHunk,
         acceptSide,
         pullBoth,
+        acceptWholeSide,
         hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
         focusHunk,
         setWordDiffEnabled(enabled: boolean) {

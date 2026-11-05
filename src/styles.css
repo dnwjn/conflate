@@ -384,11 +384,6 @@ button:focus-visible {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
-	border-right: 1px solid var(--border);
-}
-
-.tw-pane:last-child {
-	border-right: none;
 }
 
 .tw-divider {
@@ -398,6 +393,20 @@ button:focus-visible {
 	cursor: col-resize;
 	background: transparent;
 	position: relative;
+}
+
+/* The visible seam between panes, drawn on the divider (the 28px flex-basis
+   above stays the drag hit-area) rather than as a 1px `.tw-pane` border, so
+   its thickness can be tuned independently of the resize target. */
+.tw-divider::before {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	transform: translateX(-50%);
+	background: var(--border);
 }
 
 .tw-divider:hover,
@@ -633,6 +642,29 @@ button:focus-visible {
 	box-shadow:
 		inset 0 1px 0 var(--hunk-border),
 		inset 0 -1px 0 var(--hunk-border);
+}
+
+/* -- Selected hunk (result pane only) --
+ * The hunk the result cursor is currently inside gets a dotted outline
+ * around its whole block, like PhpStorm's merge tool — drawn as three
+ * classes (first/middle/last) so only the OUTER edge of a multi-line hunk
+ * is bordered, not every line boundary inside it. */
+
+.tw-pane-result .cm-line.cm-hunk-selected-first {
+	border-top: 1px dotted var(--brand);
+	border-left: 1px dotted var(--brand);
+	border-right: 1px dotted var(--brand);
+}
+
+.tw-pane-result .cm-line.cm-hunk-selected-middle {
+	border-left: 1px dotted var(--brand);
+	border-right: 1px dotted var(--brand);
+}
+
+.tw-pane-result .cm-line.cm-hunk-selected-last {
+	border-bottom: 1px dotted var(--brand);
+	border-left: 1px dotted var(--brand);
+	border-right: 1px dotted var(--brand);
 }
 
 /* Zero-width hunk (nothing on this side / in the result): a rule between lines. */

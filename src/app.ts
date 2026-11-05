@@ -17,7 +17,11 @@ import {
 } from './ipc';
 import { installKeymap, KEYMAP_BINDINGS } from './keymap';
 import { nextConflict, prevConflict } from './merge/hunkNav';
-import { createThreeWayView, type ThreeWayView } from './merge/threeWayView';
+import {
+    createThreeWayView,
+    type Side,
+    type ThreeWayView,
+} from './merge/threeWayView';
 import {
     getLaunchMode,
     loadConflictFromRepo,
@@ -195,11 +199,25 @@ export async function mountApp(
     const statusBar = el('footer', 'statusbar');
     const statusText = el('span', 'status-text', 'Loading merge input...');
     statusText.id = 'app-message';
+    const acceptLeftButton = button(
+        'Accept left',
+        'btn btn-secondary',
+        'Replace the whole result with LOCAL, resolve everything, and save',
+    );
+    acceptLeftButton.id = 'accept-left-button';
+    const acceptRightButton = button(
+        'Accept right',
+        'btn btn-secondary',
+        'Replace the whole result with REMOTE, resolve everything, and save',
+    );
+    acceptRightButton.id = 'accept-right-button';
     const abortButton = button('Abort', 'btn btn-secondary');
     abortButton.id = 'abort-button';
     const saveButton = button('Save & Finish', 'btn btn-primary');
     saveButton.id = 'save-button';
     statusBar.append(
+        acceptLeftButton,
+        acceptRightButton,
         statusText,
         el('span', 'toolbar-spacer'),
         abortButton,
@@ -211,6 +229,8 @@ export async function mountApp(
 
     setNavEnabled(false);
     saveButton.disabled = true;
+    acceptLeftButton.disabled = true;
+    acceptRightButton.disabled = true;
 
     let view: ThreeWayView | null = null;
     let busy = false;
@@ -233,6 +253,14 @@ export async function mountApp(
 
     abortButton.addEventListener('click', () => void onAbort());
     saveButton.addEventListener('click', () => void onSave());
+    acceptLeftButton.addEventListener(
+        'click',
+        () => void onAcceptWholeSide('local'),
+    );
+    acceptRightButton.addEventListener(
+        'click',
+        () => void onAcceptWholeSide('remote'),
+    );
 
     // --- Load ---------------------------------------------------------------
     let input: MergeInputPayload;
@@ -294,6 +322,8 @@ export async function mountApp(
         return handle;
     }
     saveButton.disabled = false;
+    acceptLeftButton.disabled = false;
+    acceptRightButton.disabled = false;
     setNavEnabled(true);
     refreshStatus();
     const first = nextConflict(view.conflictModel, -1);
@@ -390,6 +420,32 @@ export async function mountApp(
         );
     }
 
+    /** Shared tail of `onSave`/`onAcceptWholeSide`: writes the result doc out and reports status. */
+    async function performSave(force: boolean) {
+        if (!view) return;
+        busy = true;
+        setButtonsDisabled(true);
+        setStatus('Saving...', 'pending');
+        try {
+            const content = view.resultView.state.doc.toString();
+            const unresolved = view.conflictModel.unresolvedCount();
+            if (options.saveOverride) {
+                await options.saveOverride(content, unresolved, force);
+            } else {
+                await saveResult(content, unresolved, force);
+            }
+            // On success the default (mergetool) path exits the process; if
+            // we're still here, say so.
+            setStatus('Saved.', 'ok');
+            options.onSaveOrAbortComplete?.();
+        } catch (err) {
+            setStatus(`Save failed: ${String(err)}`, 'error');
+        } finally {
+            busy = false;
+            setButtonsDisabled(false);
+        }
+    }
+
     async function onSave() {
         if (!view || busy) return;
         if (devMode) {
@@ -411,26 +467,25 @@ export async function mountApp(
             // Matches save_result's contract: unresolved > 0 is refused unless forced.
             force = true;
         }
-        busy = true;
-        setButtonsDisabled(true);
-        setStatus('Saving...', 'pending');
-        try {
-            const content = view.resultView.state.doc.toString();
-            if (options.saveOverride) {
-                await options.saveOverride(content, unresolved, force);
-            } else {
-                await saveResult(content, unresolved, force);
-            }
-            // On success the default (mergetool) path exits the process; if
-            // we're still here, say so.
-            setStatus('Saved.', 'ok');
-            options.onSaveOrAbortComplete?.();
-        } catch (err) {
-            setStatus(`Save failed: ${String(err)}`, 'error');
-        } finally {
-            busy = false;
-            setButtonsDisabled(false);
+        await performSave(force);
+    }
+
+    /**
+     * PhpStorm-style "Accept Left"/"Accept Right": an explicit, unambiguous
+     * whole-file decision, so it skips `onSave`'s unresolved-conflicts
+     * confirmation and saves immediately.
+     */
+    async function onAcceptWholeSide(side: Side) {
+        if (!view || busy) return;
+        if (devMode) {
+            setStatus(
+                'Accept is not available in preview mode (no Tauri runtime).',
+                'error',
+            );
+            return;
         }
+        view.acceptWholeSide(side);
+        await performSave(true);
     }
 
     async function onAbort() {
@@ -476,6 +531,8 @@ export async function mountApp(
         body.appendChild(box);
         setStatus(message, 'error');
         saveButton.disabled = true;
+        acceptLeftButton.disabled = true;
+        acceptRightButton.disabled = true;
         abortButton.disabled = false;
     }
 
@@ -493,6 +550,8 @@ export async function mountApp(
     function setButtonsDisabled(disabled: boolean) {
         abortButton.disabled = disabled;
         saveButton.disabled = disabled || !view;
+        acceptLeftButton.disabled = disabled || !view;
+        acceptRightButton.disabled = disabled || !view;
     }
 
     return handle;

@@ -439,7 +439,7 @@ test('accepting one side then the other stacks them, PhpStorm-style, instead of 
     );
 });
 
-test('the stack keeps local-then-remote order even when remote is accepted first', () => {
+test('the stack follows click order: whichever side was accepted first stays on top', () => {
     const { view, container } = setup();
     const resultDom = container.querySelector('.tw-pane-result')!;
     (resultDom.querySelector('.cm-pull-remote') as HTMLElement).click();
@@ -448,7 +448,7 @@ test('the stack keeps local-then-remote order even when remote is accepted first
     );
     (resultDom.querySelector('.cm-pull-local') as HTMLElement).click();
     expect(view.resultView.state.doc.toString()).toBe(
-        'one\nlocal two\nremote two\nthree\nfour local\n',
+        'one\nremote two\nlocal two\nthree\nfour local\n',
     );
 });
 
