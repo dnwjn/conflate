@@ -1,5 +1,6 @@
 import redoIcon from './assets/icons/redo.svg?raw';
 import undoIcon from './assets/icons/undo.svg?raw';
+import wandIcon from './assets/icons/wand.svg?raw';
 import type { MergeInputPayload, ThreeWayMergeResult } from './bindings';
 import { buildBrandHeader, createUpdateChecker } from './brandHeader';
 import {
@@ -16,6 +17,7 @@ import {
     saveResult,
 } from './ipc';
 import { installKeymap, KEYMAP_BINDINGS } from './keymap';
+import { isWhitespaceOnlyConflict } from './merge/conflictModel';
 import { nextConflict, prevConflict } from './merge/hunkNav';
 import {
     createThreeWayView,
@@ -137,8 +139,15 @@ export async function mountApp(
     const counter = el('span', 'conflict-counter', '');
     const undoButton = iconButton(undoIcon, 'toolbar-button', 'Undo (⌘Z)');
     const redoButton = iconButton(redoIcon, 'toolbar-button', 'Redo (⇧⌘Z)');
+    const resolveSimpleButton = iconButton(
+        wandIcon,
+        'toolbar-button',
+        'Resolve simple conflicts (differ only in whitespace)',
+    );
+    resolveSimpleButton.id = 'resolve-simple-button';
     undoButton.disabled = true;
     redoButton.disabled = true;
+    resolveSimpleButton.disabled = true;
     const wordDiffToggle = button(
         'Word diff',
         'toolbar-toggle is-on',
@@ -161,6 +170,7 @@ export async function mountApp(
         counter,
         undoButton,
         redoButton,
+        resolveSimpleButton,
         el('span', 'toolbar-spacer'),
         wordDiffToggle,
         themeButton,
@@ -333,6 +343,10 @@ export async function mountApp(
     nextButton.addEventListener('click', () => navigate(1));
     undoButton.addEventListener('click', () => view?.undo());
     redoButton.addEventListener('click', () => view?.redo());
+    resolveSimpleButton.addEventListener('click', () => {
+        if (!view || busy) return;
+        view.resolveSimpleConflicts();
+    });
     wordDiffToggle.addEventListener('click', () =>
         setWordDiffEnabled(!wordDiffToggle.classList.contains('is-on')),
     );
@@ -394,10 +408,11 @@ export async function mountApp(
 
     function refreshStatus() {
         if (!view) return;
-        const conflicts = view.hunks.flatMap((h, i) =>
+        const activeView = view;
+        const conflicts = activeView.hunks.flatMap((h, i) =>
             h.kind === 'Conflict' ? [i] : [],
         );
-        const unresolved = view.conflictModel.unresolvedCount();
+        const unresolved = activeView.conflictModel.unresolvedCount();
         const position = conflicts.indexOf(currentHunk());
         counter.textContent =
             conflicts.length === 0
@@ -410,6 +425,11 @@ export async function mountApp(
         // unresolved hunk to land on) reads as broken, not done.
         prevButton.disabled = unresolved === 0;
         nextButton.disabled = unresolved === 0;
+        resolveSimpleButton.disabled = !activeView.hunks.some(
+            (hunk, index) =>
+                !activeView.conflictModel.isResolved(index) &&
+                isWhitespaceOnlyConflict(hunk),
+        );
         setStatus(
             unresolved === 0
                 ? conflicts.length === 0

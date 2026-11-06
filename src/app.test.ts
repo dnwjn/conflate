@@ -382,7 +382,7 @@ test('outside a Tauri runtime, mountApp shows a preview banner and stub data ins
     expect(root.querySelector('.error-state')).toBeNull();
 });
 
-test('whitespace-only conflicts are auto-merged on load with no button needed', async () => {
+test('whitespace-only conflicts start unresolved, and the "resolve simple conflicts" button clears them', async () => {
     const whitespaceOnlyResult = {
         auto_merged_text: 'L \n',
         conflict_count: 1,
@@ -404,9 +404,22 @@ test('whitespace-only conflicts are auto-merged on load with no button needed', 
     await mountApp(root);
 
     expect(root.querySelector('#app-message')?.textContent).toBe(
+        '1 conflict remaining',
+    );
+    const resolveSimpleButton = root.querySelector<HTMLButtonElement>(
+        '#resolve-simple-button',
+    );
+    expect(resolveSimpleButton).not.toBeNull();
+    expect(resolveSimpleButton?.disabled).toBe(false);
+
+    resolveSimpleButton?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+    );
+
+    expect(root.querySelector('#app-message')?.textContent).toBe(
         'All conflicts resolved',
     );
-    expect(root.querySelector('#auto-merge-button')).toBeNull();
+    expect(resolveSimpleButton?.disabled).toBe(true);
 });
 
 test('windowTitleFor falls back to the bare app name', () => {

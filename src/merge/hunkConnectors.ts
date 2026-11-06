@@ -11,6 +11,19 @@ export interface Span {
 export interface ConnectorGeometry {
     index: number;
     style: 'conflict' | 'auto';
+    /**
+     * Whether the LOCAL<->RESULT / RESULT<->REMOTE ribbon (respectively)
+     * touches a zero-width endpoint (a side/result with nothing there).
+     * Tracked per divider, not once for the whole hunk — a `LocalOnly`/
+     * `RemoteOnly` hunk's two ribbons don't both touch the gap, only the
+     * one on the side that has nothing. Drives a thicker connector stroke
+     * on just that ribbon, to match the pane's own thicker `cm-hunk-gap`
+     * line (deliberately bolder than an ordinary first/last boundary,
+     * since a gap has no real line of its own to anchor to and would
+     * otherwise be nearly invisible).
+     */
+    localHasGap: boolean;
+    remoteHasGap: boolean;
     local: Span;
     result: Span;
     remote: Span;
@@ -117,24 +130,31 @@ export function computeConnectorGeometry(
         const resolved = conflictModel.isResolved(i);
         const style: ConnectorGeometry['style'] =
             hunk.kind === 'Conflict' && !resolved ? 'conflict' : 'auto';
+        const local = sideSpan(
+            localView,
+            hunk.local_start_line,
+            hunk.local_end_line,
+        );
+        const result = resultSpan(
+            resultView,
+            conflictModel.rangeFor(i),
+            hunkIsCovering(i),
+        );
+        const remote = sideSpan(
+            remoteView,
+            hunk.remote_start_line,
+            hunk.remote_end_line,
+        );
         out.push({
             index: i,
             style,
-            local: sideSpan(
-                localView,
-                hunk.local_start_line,
-                hunk.local_end_line,
-            ),
-            result: resultSpan(
-                resultView,
-                conflictModel.rangeFor(i),
-                hunkIsCovering(i),
-            ),
-            remote: sideSpan(
-                remoteView,
-                hunk.remote_start_line,
-                hunk.remote_end_line,
-            ),
+            localHasGap:
+                local.top === local.bottom || result.top === result.bottom,
+            remoteHasGap:
+                result.top === result.bottom || remote.top === remote.bottom,
+            local,
+            result,
+            remote,
         });
     }
     return out;
@@ -146,13 +166,36 @@ export function computeConnectorGeometry(
  * ribbon, matching the Beyond Compare/Meld look). Degenerates to a thin
  * sliver when either span is zero-height (a gap/pure-deletion hunk).
  */
-export function ribbonPath(width: number, left: Span, right: Span): string {
+/**
+ * Insets a span by half of `strokeWidth` (the connector's stroke is
+ * centered on the path — see `.tw-connector`/`.tw-connector-gap` in
+ * styles.css) so the stroke's OUTER edge, not the path itself, lands
+ * exactly on the span's true boundary. Without this, the visible (stroked)
+ * top edge sits half the stroke width above the real boundary and the
+ * bottom edge the same amount below it — a symmetric "too high and too
+ * low" overshoot. Skipped for a zero-height (gap) span: insetting would
+ * invert it (bottom < top).
+ */
+function insetForStroke(span: Span, strokeWidth: number): Span {
+    if (span.top === span.bottom) return span;
+    const strokeInset = strokeWidth / 2;
+    return { top: span.top + strokeInset, bottom: span.bottom - strokeInset };
+}
+
+export function ribbonPath(
+    width: number,
+    left: Span,
+    right: Span,
+    strokeWidth = 1,
+): string {
     const midX = width / 2;
+    const l = insetForStroke(left, strokeWidth);
+    const r = insetForStroke(right, strokeWidth);
     return [
-        `M 0 ${left.top}`,
-        `C ${midX} ${left.top} ${midX} ${right.top} ${width} ${right.top}`,
-        `L ${width} ${right.bottom}`,
-        `C ${midX} ${right.bottom} ${midX} ${left.bottom} 0 ${left.bottom}`,
+        `M 0 ${l.top}`,
+        `C ${midX} ${l.top} ${midX} ${r.top} ${width} ${r.top}`,
+        `L ${width} ${r.bottom}`,
+        `C ${midX} ${r.bottom} ${midX} ${l.bottom} 0 ${l.bottom}`,
         'Z',
     ].join(' ');
 }

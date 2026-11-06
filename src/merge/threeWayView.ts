@@ -45,7 +45,11 @@ import type {
     ThreeWayMergeResult,
     WordDiffOp,
 } from '../bindings';
-import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
+import {
+    ConflictModel,
+    hunkContentMatchesSource,
+    isWhitespaceOnlyConflict,
+} from './conflictModel';
 import {
     computeConnectorGeometry,
     ribbonPath,
@@ -122,6 +126,15 @@ export interface ThreeWayView {
      * not meant to be followed by further per-hunk edits.
      */
     acceptWholeSide(side: Side): void;
+    /**
+     * PhpStorm-style "Resolve Simple Conflicts": pulls local's text into
+     * every still-unresolved `Conflict` hunk where local and remote agree
+     * modulo whitespace (see `isWhitespaceOnlyConflict`) — the one class of
+     * conflict safe to resolve mechanically. Genuine conflicts and
+     * already-resolved hunks are left untouched. Returns the number of
+     * hunks resolved.
+     */
+    resolveSimpleConflicts(): number;
     /**
      * Index of the hunk the result cursor at offset `pos` is on (hunks tile
      * the document). A zero-width conflict at `pos` wins over the hunk that
@@ -798,12 +811,16 @@ export function createThreeWayView(
                 if (chunk.fromA < chunk.toA) {
                     const first = doc.lineAt(chunk.fromA).number;
                     const last = doc.lineAt(chunk.endA).number;
-                    for (let n = first; n <= last; n++)
+                    for (let n = first; n <= last; n++) {
+                        let lineCls = liveCls;
+                        if (n === first) lineCls += ' cm-live-diff-first';
+                        if (n === last) lineCls += ' cm-live-diff-last';
                         decos.push(
-                            Decoration.line({ class: liveCls }).range(
+                            Decoration.line({ class: lineCls }).range(
                                 doc.line(n).from,
                             ),
                         );
+                    }
                 } else {
                     const pos = Math.min(chunk.fromA, doc.length);
                     const line = doc.lineAt(pos);
@@ -817,10 +834,24 @@ export function createThreeWayView(
             }
             for (let i = 0; i < hunks.length; i++) {
                 const hunk = hunks[i];
-                if (hunk.kind !== 'Conflict') continue;
-                const cls = conflictModel.isResolved(i)
-                    ? 'cm-hunk-resolved'
-                    : 'cm-hunk-conflict';
+                let cls: string | null;
+                if (hunk.kind === 'Conflict') {
+                    cls = conflictModel.isResolved(i)
+                        ? 'cm-hunk-resolved'
+                        : 'cm-hunk-conflict';
+                } else if (
+                    (hunk.kind === 'LocalOnly' && side === 'local') ||
+                    (hunk.kind === 'RemoteOnly' && side === 'remote') ||
+                    hunk.kind === 'SameChange'
+                ) {
+                    // Marks the origin side(s) of an auto-merged hunk even
+                    // after the live diff shows no difference from the
+                    // result, so it stays visible where it came from.
+                    cls = 'cm-hunk-auto';
+                } else {
+                    cls = null;
+                }
+                if (cls === null) continue;
                 const start =
                     side === 'local'
                         ? hunk.local_start_line
@@ -941,19 +972,28 @@ export function createThreeWayView(
         const localWidth = localDividerParts.svg.clientWidth;
         const remoteWidth = remoteDividerParts.svg.clientWidth;
         for (const g of geometry) {
-            const cls = `tw-connector tw-connector-${g.style}`;
+            const baseCls = `tw-connector tw-connector-${g.style}`;
             const local = shift(g.local);
             const result = shift(g.result);
             const remote = shift(g.remote);
             const localPath = localPathPool[g.index];
-            localPath.setAttribute('class', cls);
-            localPath.setAttribute('d', ribbonPath(localWidth, local, result));
+            localPath.setAttribute(
+                'class',
+                g.localHasGap ? `${baseCls} tw-connector-gap` : baseCls,
+            );
+            localPath.setAttribute(
+                'd',
+                ribbonPath(localWidth, local, result, g.localHasGap ? 2 : 1),
+            );
             localPath.style.display = '';
             const remotePath = remotePathPool[g.index];
-            remotePath.setAttribute('class', cls);
+            remotePath.setAttribute(
+                'class',
+                g.remoteHasGap ? `${baseCls} tw-connector-gap` : baseCls,
+            );
             remotePath.setAttribute(
                 'd',
-                ribbonPath(remoteWidth, result, remote),
+                ribbonPath(remoteWidth, result, remote, g.remoteHasGap ? 2 : 1),
             );
             remotePath.style.display = '';
         }
@@ -1298,6 +1338,32 @@ export function createThreeWayView(
     }
 
     /**
+     * Resolves every still-unresolved whitespace-only conflict (see
+     * `isWhitespaceOnlyConflict`) by pulling local's text into it — local
+     * vs. remote is immaterial here since the two already agree modulo
+     * whitespace. Dispatches one transaction per resolved hunk via the
+     * existing `pullHunk`, rather than batching them into a single
+     * transaction: `pullHunk` always reads the hunk's current (possibly
+     * already-remapped) range from `conflictModel`, so sequential dispatches
+     * stay correctly positioned for free. The trade-off is one undo step per
+     * hunk instead of one combined step, which matches how every other
+     * multi-hunk action in this file that isn't a single whole-doc replace
+     * already behaves.
+     */
+    function resolveSimpleConflicts(): number {
+        let resolvedCount = 0;
+        hunks.forEach((hunk, index) => {
+            if (
+                !conflictModel.isResolved(index) &&
+                isWhitespaceOnlyConflict(hunk) &&
+                pullHunk(index, 'local')
+            )
+                resolvedCount++;
+        });
+        return resolvedCount;
+    }
+
+    /**
      * Whole-file accept: replaces the result doc outright with `side`'s
      * full text and marks every hunk resolved in the same transaction. The
      * hunks' tracked ranges no longer correspond to anything meaningful
@@ -1367,6 +1433,7 @@ export function createThreeWayView(
         acceptSide,
         pullBoth,
         acceptWholeSide,
+        resolveSimpleConflicts,
         hunkIndexAt: (pos) => hunkIndexForCursor(conflictModel, hunks, pos),
         focusHunk,
         setWordDiffEnabled(enabled: boolean) {

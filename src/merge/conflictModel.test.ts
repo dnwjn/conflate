@@ -1,7 +1,11 @@
 import { ChangeSet, Text } from '@codemirror/state';
 import { expect, test } from 'vitest';
 import type { Hunk, HunkKind } from '../bindings';
-import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
+import {
+    ConflictModel,
+    hunkContentMatchesSource,
+    isWhitespaceOnlyConflict,
+} from './conflictModel';
 
 /**
  * Builds a full `Hunk` from just the fields a test cares about. The real
@@ -258,7 +262,7 @@ test('Conflict hunks start unresolved among a mix of auto-mergeable hunks', () =
     expect(model.unresolvedCount()).toBe(1);
 });
 
-test('a Conflict hunk where local and remote agree modulo whitespace starts resolved; a genuine one does not', () => {
+test('a Conflict hunk where local and remote agree modulo whitespace starts unresolved, same as a genuine conflict', () => {
     const doc = Text.of(['a', 'b']);
     const model = new ConflictModel(
         [
@@ -279,11 +283,38 @@ test('a Conflict hunk where local and remote agree modulo whitespace starts reso
         ],
         doc,
     );
-    expect(model.isResolved(0)).toBe(true);
-    expect(model.wasAutoMerged(0)).toBe(true);
+    expect(model.isResolved(0)).toBe(false);
+    expect(model.wasAutoMerged(0)).toBe(false);
     expect(model.isResolved(1)).toBe(false);
     expect(model.wasAutoMerged(1)).toBe(false);
-    expect(model.unresolvedCount()).toBe(1);
+    expect(model.unresolvedCount()).toBe(2);
+});
+
+test('isWhitespaceOnlyConflict is true only for a Conflict hunk whose sides agree modulo whitespace', () => {
+    const whitespaceOnly = makeHunk({
+        start_line: 0,
+        end_line: 1,
+        kind: 'Conflict',
+        local_text: 'two \n',
+        remote_text: ' two\n',
+    });
+    const genuine = makeHunk({
+        start_line: 0,
+        end_line: 1,
+        kind: 'Conflict',
+        local_text: 'L\n',
+        remote_text: 'R\n',
+    });
+    const nonConflictKind = makeHunk({
+        start_line: 0,
+        end_line: 1,
+        kind: 'LocalOnly',
+        local_text: 'two \n',
+        remote_text: ' two\n',
+    });
+    expect(isWhitespaceOnlyConflict(whitespaceOnly)).toBe(true);
+    expect(isWhitespaceOnlyConflict(genuine)).toBe(false);
+    expect(isWhitespaceOnlyConflict(nonConflictKind)).toBe(false);
 });
 
 test('wasAutoMerged stays true for an auto-mergeable kind even after the user later pulls/unpulls a side', () => {

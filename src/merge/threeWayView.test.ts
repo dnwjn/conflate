@@ -229,7 +229,7 @@ test("pullBoth inserts local's lines followed by remote's and marks the hunk res
     );
 });
 
-test('whitespace-only conflicts are auto-resolved on load, genuine ones are not', () => {
+test('whitespace-only conflicts start unresolved on load, same as genuine ones', () => {
     const trivialInput: MergeInputPayload = {
         base: 'one\ntwo\nthree\n',
         local: 'one\ntwo \nthree\n',
@@ -278,15 +278,28 @@ test('whitespace-only conflicts are auto-resolved on load, genuine ones are not'
     );
     created.push(view);
 
-    // The whitespace-only conflict is auto-resolved right after mount; the
-    // genuine one (different value, not just whitespace) is left untouched.
-    expect(view.conflictModel.isResolved(1)).toBe(true);
+    // Neither conflict is auto-resolved at mount anymore: the whitespace-only
+    // one now requires the user to click "Resolve Simple Conflicts" (see
+    // below), same as any genuine conflict.
+    expect(view.conflictModel.isResolved(1)).toBe(false);
     expect(view.conflictModel.isResolved(2)).toBe(false);
-    expect(view.conflictModel.wasAutoMerged(1)).toBe(true);
+    expect(view.conflictModel.wasAutoMerged(1)).toBe(false);
     expect(view.conflictModel.wasAutoMerged(2)).toBe(false);
+
+    expect(view.resolveSimpleConflicts()).toBe(1);
+
+    expect(view.conflictModel.isResolved(1)).toBe(true);
+    // The genuine conflict is untouched by resolveSimpleConflicts.
+    expect(view.conflictModel.isResolved(2)).toBe(false);
     // Resolves to local's exact bytes (not a normalized/trimmed version).
     const range = view.conflictModel.rangeFor(1);
     expect(view.resultView.state.sliceDoc(range.from, range.to)).toBe('two ');
+});
+
+test('resolveSimpleConflicts is a no-op when there are no whitespace-only conflicts', () => {
+    const { view } = setup();
+    expect(view.resolveSimpleConflicts()).toBe(0);
+    expect(view.conflictModel.isResolved(1)).toBe(false);
 });
 
 test('a burst of result edits schedules at most one pending re-diff frame', () => {
@@ -338,6 +351,27 @@ test('side diffs track the LIVE result: after a pull and a manual edit, highligh
     });
     fresh.view.flushPendingDiff();
     expect(changedResultLines(fresh.view, 'remote')).toEqual([3, 4]);
+});
+
+test('live-diff lines get first/last boundary classes, not a flat fill on every line', () => {
+    const { container } = setup();
+    const remoteDom = container.querySelector('.tw-pane-remote')!;
+    // Fixture: remote differs from the live result on lines 2 and 4 only
+    // (two separate single-line chunks), per the test above.
+    const firsts = Array.from(
+        remoteDom.querySelectorAll('.cm-line.cm-live-diff-first'),
+    ).map((el) => el.textContent);
+    const lasts = Array.from(
+        remoteDom.querySelectorAll('.cm-line.cm-live-diff-last'),
+    ).map((el) => el.textContent);
+    expect(firsts).toHaveLength(2);
+    expect(lasts).toHaveLength(2);
+    // Each single-line chunk's line is both its own first and last.
+    expect(
+        remoteDom.querySelectorAll(
+            '.cm-line.cm-live-diff-first.cm-live-diff-last',
+        ),
+    ).toHaveLength(2);
 });
 
 test('pull arrows: both on an open conflict, otherwise only where pulling would change the result', () => {
@@ -409,6 +443,69 @@ test('hand-editing an auto-merged hunk away from its source text marks it "edite
         resultDom.querySelectorAll('.cm-hunk-edited').length,
     ).toBeGreaterThan(0);
     expect(resultDom.querySelectorAll('.cm-hunk-auto')).toHaveLength(0);
+});
+
+test('a LocalOnly hunk marks its origin in the LOCAL pane only', () => {
+    const { container } = setup();
+    // Fixture hunk 3 is LocalOnly (local added "four local", remote didn't).
+    expect(
+        container
+            .querySelector('.tw-pane-local')!
+            .querySelectorAll('.cm-hunk-auto').length,
+    ).toBeGreaterThan(0);
+    expect(
+        container
+            .querySelector('.tw-pane-remote')!
+            .querySelectorAll('.cm-hunk-auto').length,
+    ).toBe(0);
+});
+
+test('a RemoteOnly hunk marks its origin in the REMOTE pane only, and a SameChange hunk marks both', () => {
+    const originInput: MergeInputPayload = {
+        base: 'one\ntwo\n',
+        local: 'one\ntwo\n',
+        remote: 'one\ntwo\nthree\n',
+        languageHint: null,
+        fileName: 'origin.txt',
+        fullPath: '/repo/origin.txt',
+    };
+    const originResult: ThreeWayMergeResult = {
+        auto_merged_text: 'one\ntwo\nthree\n',
+        conflict_count: 0,
+        hunks: [
+            makeHunk({ start_line: 0, end_line: 1, kind: 'Unchanged' }),
+            makeHunk({
+                start_line: 1,
+                end_line: 2,
+                kind: 'SameChange',
+                local_text: 'two\n',
+                remote_text: 'two\n',
+            }),
+            makeHunk({
+                start_line: 2,
+                end_line: 3,
+                kind: 'RemoteOnly',
+                local_text: '',
+                remote_text: 'three\n',
+                merged_text: 'three\n',
+            }),
+        ],
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const view = createThreeWayView(container, originInput, originResult);
+    created.push(view);
+
+    const localAuto = container
+        .querySelector('.tw-pane-local')!
+        .querySelectorAll('.cm-hunk-auto');
+    const remoteAuto = container
+        .querySelector('.tw-pane-remote')!
+        .querySelectorAll('.cm-hunk-auto');
+    // SameChange (hunk 1) marks both sides; RemoteOnly (hunk 2) marks remote
+    // only — so remote has strictly more marked lines than local.
+    expect(localAuto.length).toBeGreaterThan(0);
+    expect(remoteAuto.length).toBeGreaterThan(localAuto.length);
 });
 
 test('an unresolved conflict stays yellow even after hand-editing', () => {

@@ -2,10 +2,12 @@ import type { ChangeSet, Text } from '@codemirror/state';
 import type { Hunk, HunkKind } from '../bindings';
 
 /**
- * Hunk kinds the 3-way merge already resolved automatically. Everything else
- * (`Conflict`) needs the user's attention and starts unresolved — except a
- * `Conflict` where local and remote agree modulo whitespace, which is also
- * auto-resolved (see `isAutoMergeable`).
+ * Hunk kinds the 3-way merge already resolved automatically without the user
+ * picking a side. Everything else (`Conflict`) needs the user's attention and
+ * starts unresolved — including a `Conflict` where local and remote agree
+ * modulo whitespace, which is a genuine (if easy) choice the user should see
+ * and can resolve on demand via `isWhitespaceOnlyConflict` (see the
+ * "Resolve Simple Conflicts" action), not one made silently at load time.
  */
 const AUTO_MERGEABLE_KINDS: ReadonlySet<HunkKind> = new Set([
     'Unchanged',
@@ -14,19 +16,21 @@ const AUTO_MERGEABLE_KINDS: ReadonlySet<HunkKind> = new Set([
     'SameChange',
 ]);
 
-/**
- * Whether a hunk is resolved by the 3-way merge/load-time pass without the
- * user picking a side: every `AUTO_MERGEABLE_KINDS` kind, plus a `Conflict`
- * where both sides differ only in whitespace (a genuine disagreement is left
- * for the user). `merged_text` already holds local's version for such a
- * hunk (see `three_way.rs`'s "ours first" seeding), which is fine since local
- * and remote only differ in whitespace there.
- */
+/** Whether a hunk is resolved by the 3-way merge/load-time pass alone. */
 function isAutoMergeable(hunk: Hunk): boolean {
+    return AUTO_MERGEABLE_KINDS.has(hunk.kind);
+}
+
+/**
+ * Whether a `Conflict` hunk is "simple": local and remote both made the same
+ * change modulo whitespace, so resolving it is a safe, mechanical choice
+ * (picking either side's content) rather than a real decision — the kind of
+ * conflict the "Resolve Simple Conflicts" action targets.
+ */
+export function isWhitespaceOnlyConflict(hunk: Hunk): boolean {
     return (
-        AUTO_MERGEABLE_KINDS.has(hunk.kind) ||
-        (hunk.kind === 'Conflict' &&
-            hunk.local_text.trim() === hunk.remote_text.trim())
+        hunk.kind === 'Conflict' &&
+        hunk.local_text.trim() === hunk.remote_text.trim()
     );
 }
 
