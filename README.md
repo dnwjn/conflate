@@ -97,7 +97,7 @@ made public.
 ### One-time maintainer setup (not automated)
 
 Generate a signing keypair with the project's own `@tauri-apps/cli`:
-`npx tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
+`pnpm exec tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
 somewhere outside the repo). Put the printed public key in
 `src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing the
 placeholder), and add the private key's contents (and its password, if set)
@@ -107,11 +107,11 @@ as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
 ### Exercising the update UI in development
 
 There's no real release endpoint to check against during development.
-`npm run dev:stub` sets `VITE_STUB_UPDATE`, which makes `checkForUpdate`
+`pnpm run dev:stub` sets `VITE_STUB_UPDATE`, which makes `checkForUpdate`
 (`src/update.ts`) skip the real plugin call and return a canned "newer
 version available" update instead, so the banner/modal/download-progress
 flow can be exercised end to end without a real Tauri runtime or a
-published release. Set the same variable yourself (`VITE_STUB_UPDATE=1 npm
+published release. Set the same variable yourself (`VITE_STUB_UPDATE=1 pnpm
 run dev`) to get the same effect in the plain browser preview.
 
 ## Set up as your git mergetool
@@ -241,8 +241,8 @@ Requirements:
 ```bash
 git clone https://github.com/<owner>/conflate.git
 cd conflate
-npm install
-npm run tauri build
+pnpm install
+pnpm run tauri build
 ```
 
 This produces `Conflate.app` and `Conflate_<version>_aarch64.dmg` in
@@ -251,7 +251,7 @@ This produces `Conflate.app` and `Conflate_<version>_aarch64.dmg` in
 For local development (hot-reloading dev window), Conflate needs the same
 four file arguments git would pass it — see
 [CONTRIBUTING.md](CONTRIBUTING.md#local-dev-setup) for the exact command
-(with a bare `npm run tauri dev`, the app exits `2` with a usage error).
+(with a bare `pnpm run tauri dev`, the app exits `2` with a usage error).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full dev workflow and test
 suites.

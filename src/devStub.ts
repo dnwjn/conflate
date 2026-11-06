@@ -7,7 +7,7 @@ import type {
     ThreeWayMergeResult,
 } from './bindings';
 
-/** True outside a real Tauri webview (e.g. `npm run dev` opened as a plain browser tab). */
+/** True outside a real Tauri webview (e.g. `pnpm run dev` opened as a plain browser tab). */
 export function isTauriRuntime(): boolean {
     return '__TAURI_INTERNALS__' in window;
 }

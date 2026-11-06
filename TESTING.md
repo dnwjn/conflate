@@ -8,11 +8,11 @@ that need a real renderer. Run it before each release.
 
 Use the sample trio in `dev-fixtures/sample/` (it has a Conflict, a
 delete-vs-modify zero-width Conflict, LocalOnly, RemoteOnly, SameChange, and
-a one-sided insertion), or make your own with the same mix. Then run (three
+a one-sided insertion), or make your own with the same mix. Then run (two
 `--` — see CONTRIBUTING.md for why; paths must be absolute):
 
 ```sh
-npm run tauri dev -- -- -- \
+pnpm run tauri dev -- -- \
   "$PWD/dev-fixtures/sample/base.ts" "$PWD/dev-fixtures/sample/local.ts" \
   "$PWD/dev-fixtures/sample/remote.ts" /tmp/conflate-merged.ts
 ```
@@ -20,8 +20,8 @@ npm run tauri dev -- -- -- \
 The `.ts` extension exercises syntax highlighting.
 
 **Exit-code checks** must run the app binary directly, not through
-`npm run tauri dev` (whose own exit status is the dev server's, not
-Conflate's). Build once with `npm run tauri build`, then:
+`pnpm run tauri dev` (whose own exit status is the dev server's, not
+Conflate's). Build once with `pnpm run tauri build`, then:
 
 ```sh
 F="$PWD/dev-fixtures/sample"

@@ -8,7 +8,7 @@
  * Set `VITE_STUB_UPDATE` (see `package.json`'s `dev:stub` script) to skip
  * the real check entirely and exercise the update UI with canned data
  * instead — useful since there's no real Tauri runtime talking to a real
- * release endpoint under `npm run dev`/`npm run dev:stub`.
+ * release endpoint under `pnpm run dev`/`pnpm run dev:stub`.
  */
 
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -49,7 +49,7 @@ export async function checkForUpdate(
         return createMockUpdate({
             version: stubNextVersion(packageJson.version),
             currentVersion: packageJson.version,
-            body: 'Stubbed release notes for exercising the update UI under `npm run dev:stub`.',
+            body: 'Stubbed release notes for exercising the update UI under `pnpm run dev:stub`.',
         });
     }
     try {
@@ -98,8 +98,8 @@ export async function restartToApplyUpdate(): Promise<void> {
 
 /**
  * Fake `UpdateInfo` for exercising the update UI without a real Tauri
- * runtime to check against (`npm run dev`) or with `VITE_STUB_UPDATE` set
- * (`npm run dev:stub`). `downloadAndInstall` fires the same
+ * runtime to check against (`pnpm run dev`) or with `VITE_STUB_UPDATE` set
+ * (`pnpm run dev:stub`). `downloadAndInstall` fires the same
  * `Started` → `Progress`(xN) → `Finished` event sequence the real plugin
  * would, on a short timer.
  */

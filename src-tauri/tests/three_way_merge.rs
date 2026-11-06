@@ -431,7 +431,7 @@ fn dev_fixture_sample_covers_every_hunk_kind() {
     );
     // The frontend auto-resolves a `Conflict` hunk on load when both sides
     // agree modulo whitespace (`TAGLINE`, re-indented differently by each
-    // side) — keep one in the fixture so `npm run dev:stub` can actually
+    // side) — keep one in the fixture so `pnpm run dev:stub` can actually
     // exercise that.
     assert!(
         result.hunks.iter().any(|h| h.kind == HunkKind::Conflict

@@ -179,7 +179,7 @@ pub fn load_merge_input(
     // But these same 4 positional arguments are also conflate's whole public
     // CLI contract (see `cli.rs`) — nothing stops someone invoking it
     // directly on real, non-disposable files (this very repo's own
-    // `npm run dev:stub` points it straight at the checked-in
+    // `pnpm run dev:stub` points it straight at the checked-in
     // `dev-fixtures/sample/*.ts`). So only delete a path that actually
     // matches git's own naming convention for its temp files
     // (`is_git_mergetool_temp_file`); anything else is left untouched.
@@ -534,7 +534,7 @@ mod tests {
         // Conflate's 4 positional CLI args are its whole public contract
         // (see `cli.rs`), invokable directly on real files — not only as
         // git's own disposable mergetool temp files. This repo's own
-        // `npm run dev:stub` points conflate straight at the checked-in
+        // `pnpm run dev:stub` points conflate straight at the checked-in
         // `dev-fixtures/sample/*.ts`; a plain name like `base.txt` must
         // never be treated as disposable just because it was passed as the
         // `base` argument.

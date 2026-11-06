@@ -193,7 +193,7 @@ export async function mountApp(
     const devBanner = el(
         'div',
         'dev-banner',
-        'Preview mode (no Tauri runtime) — showing stub data. Use `npm run tauri dev` or `npm run dev:stub` for a real merge.',
+        'Preview mode (no Tauri runtime) — showing stub data. Use `pnpm run tauri dev` or `pnpm run dev:stub` for a real merge.',
     );
     const body = el('main', 'merge-host');
     const statusBar = el('footer', 'statusbar');
@@ -235,7 +235,7 @@ export async function mountApp(
     let view: ThreeWayView | null = null;
     let busy = false;
 
-    // Outside a real Tauri webview (e.g. `npm run dev` opened as a plain
+    // Outside a real Tauri webview (e.g. `pnpm run dev` opened as a plain
     // browser tab) there's no backend to call and nothing to merge, so skip
     // straight to a stub merge for UI preview instead of surfacing the raw
     // "nothing to call invoke() on" failure.

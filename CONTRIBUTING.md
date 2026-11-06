@@ -6,18 +6,18 @@ Requirements: [Rust](https://rustup.rs) (stable), [Node.js](https://nodejs.org) 
 and macOS with the Tauri 2 [macOS prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
-npm install
+pnpm install
 ```
 
 Conflate always needs git's four mergetool arguments
-(`<base> <local> <remote> <merged>`); with a bare `npm run tauri dev` the app
+(`<base> <local> <remote> <merged>`); with a bare `pnpm run tauri dev` the app
 itself exits `2` with a usage error before any window opens. A small sample conflict trio
 lives in `dev-fixtures/sample/` (it covers every hunk kind: conflicts,
 including a delete-vs-modify one, local-only, remote-only, and same-change
 edits). Run the hot-reloading dev window against it with:
 
 ```bash
-npm run tauri dev -- -- -- \
+pnpm run tauri dev -- -- \
   "$PWD/dev-fixtures/sample/base.ts" \
   "$PWD/dev-fixtures/sample/local.ts" \
   "$PWD/dev-fixtures/sample/remote.ts" \
@@ -26,9 +26,9 @@ npm run tauri dev -- -- -- \
 
 Notes:
 
-- **Three `--`, not two.** npm swallows the first one, the Tauri CLI reads
-  the second as "runner (cargo) arguments start here", and only arguments
-  after the *third* reach Conflate itself (`tauri dev -- [runnerArgs] -- [appArgs]`).
+- **Two `--`, not one.** The Tauri CLI reads the first as "runner (cargo)
+  arguments start here", and only arguments after the *second* reach
+  Conflate itself (`tauri dev -- [runnerArgs] -- [appArgs]`).
 - **Use absolute paths** (hence `$PWD`): the app is not guaranteed to run
   with the repository root as its working directory.
 - **Point `merged` somewhere disposable** — Save & Finish overwrites it. Never
@@ -67,13 +67,13 @@ Run all of these before opening a PR — they're also what CI runs:
 (cd src-tauri && cargo clippy -- -D warnings)
 
 # Frontend: Vitest unit tests
-npm test
+pnpm test
 
 # Frontend: type checking
-npm run typecheck
+pnpm run typecheck
 
 # Frontend: lint + format check (Biome)
-npm run lint
+pnpm run lint
 ```
 
 If you've touched `src-tauri/src/commands.rs` or any `#[specta]`-annotated
