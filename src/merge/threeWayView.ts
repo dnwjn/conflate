@@ -46,7 +46,11 @@ import type {
     WordDiffOp,
 } from '../bindings';
 import { ConflictModel, hunkContentMatchesSource } from './conflictModel';
-import { computeConnectorGeometry, ribbonPath } from './hunkConnectors';
+import {
+    computeConnectorGeometry,
+    ribbonPath,
+    type Span,
+} from './hunkConnectors';
 import { hunkIndexAt as hunkIndexForCursor } from './hunkNav';
 import { computePullChange } from './pullChange';
 import { wordDiffRanges } from './wordDiff';
@@ -97,8 +101,9 @@ export interface ThreeWayView {
      * PhpStorm-style "accept this side" — the arrows in the RESULT pane
      * (and the ⌥⌘←/⌥⌘→ keybindings) use this instead of `pullHunk`. If the
      * OTHER side is already cleanly in place, this appends `side` after it
-     * (stacking both, always local-then-remote) rather than replacing it;
-     * otherwise it's a plain `pullHunk`. Returns false if nothing changed.
+     * (stacking both, in click order — whichever side was accepted first
+     * stays on top) rather than replacing it; otherwise it's a plain
+     * `pullHunk`. Returns false if nothing changed.
      */
     acceptSide(hunkIndex: number, side: Side): boolean;
     /**
@@ -881,6 +886,7 @@ export function createThreeWayView(
             'path',
         );
         path.style.display = 'none';
+        path.dataset.hunkIndex = String(hunkIndex);
         path.addEventListener('click', () => focusHunk(hunkIndex));
         svg.appendChild(path);
         return path;
@@ -906,23 +912,48 @@ export function createThreeWayView(
             resultView,
             remoteView,
         );
+        // `lineBlockAt`-based spans are relative to each pane's own CM6
+        // content-coordinate origin, which doesn't necessarily land on the
+        // divider SVG's y=0 (comparing `resultView.scrollDOM`'s own
+        // bounding rect to the SVG's turned out NOT to account for the
+        // actual gap — empirically it's zero). Measure the real discrepancy
+        // directly instead: take the RESULT pane's first actual rendered
+        // `.cm-line` element, compare where `lineBlockAt` says it should
+        // land (in the same SVG-local coordinate space `ribbonPath` draws
+        // in) against where it's really rendered, and correct by the
+        // difference. Self-calibrating against whatever the true cause is
+        // (CM6 content padding, gutter/content alignment, etc.) rather than
+        // hardcoding a guessed constant.
+        const firstLineDom = resultPane.editor.querySelector('.cm-line');
+        const svgTop = localDividerParts.svg.getBoundingClientRect().top;
+        let yCorrection = 0;
+        if (firstLineDom) {
+            const firstBlock = resultView.lineBlockAt(0);
+            const computedY = firstBlock.top - resultView.scrollDOM.scrollTop;
+            const realY = firstLineDom.getBoundingClientRect().top - svgTop;
+            yCorrection = realY - computedY;
+        }
+        const shift = (span: Span): Span => ({
+            top: span.top + yCorrection,
+            bottom: span.bottom + yCorrection,
+        });
         const shown = new Set(geometry.map((g) => g.index));
         const localWidth = localDividerParts.svg.clientWidth;
         const remoteWidth = remoteDividerParts.svg.clientWidth;
         for (const g of geometry) {
             const cls = `tw-connector tw-connector-${g.style}`;
+            const local = shift(g.local);
+            const result = shift(g.result);
+            const remote = shift(g.remote);
             const localPath = localPathPool[g.index];
             localPath.setAttribute('class', cls);
-            localPath.setAttribute(
-                'd',
-                ribbonPath(localWidth, g.local, g.result),
-            );
+            localPath.setAttribute('d', ribbonPath(localWidth, local, result));
             localPath.style.display = '';
             const remotePath = remotePathPool[g.index];
             remotePath.setAttribute('class', cls);
             remotePath.setAttribute(
                 'd',
-                ribbonPath(remoteWidth, g.result, g.remote),
+                ribbonPath(remoteWidth, result, remote),
             );
             remotePath.style.display = '';
         }
@@ -1035,7 +1066,6 @@ export function createThreeWayView(
     function syncScroll() {
         const scrollTop = resultView.scrollDOM.scrollTop;
         const block = resultView.lineBlockAtHeight(scrollTop);
-        const offsetInto = scrollTop - block.top;
         const resultDoc = resultView.state.doc;
         const index = hunkShownAt(block.from);
         for (const side of ['local', 'remote'] as const) {
@@ -1098,8 +1128,11 @@ export function createThreeWayView(
             );
             const sideHeight =
                 sideBottomBlock.top + sideBottomBlock.height - sideTop;
-            view.scrollDOM.scrollTop =
-                sideTop + fraction * sideHeight + offsetInto;
+            // `fraction * sideHeight` is already a continuous, sub-pixel
+            // position within the hunk's own span — unlike the old
+            // nearest-line approach, there's no separate sub-line remainder
+            // left to add back on top of it.
+            view.scrollDOM.scrollTop = sideTop + fraction * sideHeight;
         }
         scheduleConnectorRender();
     }
@@ -1189,18 +1222,7 @@ export function createThreeWayView(
         return true;
     }
 
-    /**
-     * PhpStorm-style stacking: accepting a side while the OTHER side is
-     * already cleanly in place (the hunk's live range holds exactly that
-     * side's text, not something hand-edited away from it) appends this
-     * side after it instead of replacing it — so "accept local" then
-     * "accept remote" (in either order) keeps both, always arranged
-     * local-then-remote (see `pullBoth`'s doc comment for why that order).
-     * Anything else — the first pull on a hunk, accepting the same side
-     * again, or a result already hand-edited away from either side's exact
-     * text — isn't representable as a stack, so it falls back to a plain
-     * replace: stacking isn't always possible.
-     */
+    /** Always a plain replace — see `acceptSide` below for the stacking variant. */
     function pullHunk(hunkIndex: number, side: Side): boolean {
         return pullText(
             hunkIndex,

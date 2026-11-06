@@ -409,8 +409,12 @@ button:focus-visible {
 	background: var(--border);
 }
 
-.tw-divider:hover,
-.tw-divider:active {
+/* Widen just the accent line on hover/active, not the whole 28px hit-area —
+   filling the entire hit-area read as an oversized block rather than a
+   resize affordance. */
+.tw-divider:hover::before,
+.tw-divider:active::before {
+	width: 6px;
 	background: var(--brand);
 }
 
@@ -459,6 +463,12 @@ button:focus-visible {
 
 .tw-pane-result {
 	flex: 1 1 auto;
+	/* Keep this in sync with `MIN_RESULT_PANE_WIDTH` in threeWayView.ts. The
+	   side panes already floor at `min-width: 220px` above, but without a
+	   matching floor here, plain window-resize shrinking (not just a divider
+	   drag, which is the only thing the JS clamp guards) could squeeze this
+	   pane toward 0 width, crushing the two dividers together. */
+	min-width: 240px;
 }
 
 .tw-pane-header {
@@ -585,21 +595,33 @@ button:focus-visible {
 	background: var(--live-remote-bg);
 }
 
+/* Dashed rather than a solid 2px box-shadow line (its previous look) so this
+   reads clearly as a diff marker — "this side has no line here" — rather
+   than a stray underline left over by accident. */
 .tw-root .cm-line.cm-live-gap {
 	background: transparent;
-	box-shadow: inset 0 2px 0 var(--muted);
+	border-top: 2px dashed var(--muted);
 }
 
 .tw-root .cm-line.cm-live-gap.cm-live-gap-end {
-	box-shadow: inset 0 -2px 0 var(--muted);
+	border-top: none;
+	border-bottom: 2px dashed var(--muted);
 }
 
 .tw-pane-local .cm-line.cm-live-gap {
-	box-shadow: inset 0 2px 0 var(--local);
+	border-top-color: var(--local);
+}
+
+.tw-pane-local .cm-line.cm-live-gap.cm-live-gap-end {
+	border-bottom-color: var(--local);
 }
 
 .tw-pane-remote .cm-line.cm-live-gap {
-	box-shadow: inset 0 2px 0 var(--remote);
+	border-top-color: var(--remote);
+}
+
+.tw-pane-remote .cm-line.cm-live-gap.cm-live-gap-end {
+	border-bottom-color: var(--remote);
 }
 
 /* -- Hunk bands -- */
