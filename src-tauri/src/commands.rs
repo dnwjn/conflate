@@ -166,34 +166,6 @@ pub fn load_merge_input(
         LineEnding::detect(&remote_content)
     };
     let language_hint = language_hint_for(local, remote);
-    // `base`/`local`/`remote` are git's own scratch temp files when conflate
-    // is actually run as a mergetool (git's machinery names them literally
-    // `..._BASE_<pid>`/`_LOCAL_<pid>`/`_REMOTE_<pid>`, already fully read
-    // into `LoadedInput` above — nothing in this process touches them
-    // again). Git itself only deletes them when the tool exits 0; our own
-    // Abort deliberately exits 1 (see `ExitCode`) so the conflict stays
-    // resumable, which means git leaves them orphaned on disk forever.
-    // Deleting them here, unconditionally and before any exit-code decision,
-    // stops that litter regardless of how the session ends.
-    //
-    // But these same 4 positional arguments are also conflate's whole public
-    // CLI contract (see `cli.rs`) — nothing stops someone invoking it
-    // directly on real, non-disposable files (this very repo's own
-    // `pnpm run dev:stub` points it straight at the checked-in
-    // `dev-fixtures/sample/*.ts`). So only delete a path that actually
-    // matches git's own naming convention for its temp files
-    // (`is_git_mergetool_temp_file`); anything else is left untouched.
-    // `merged` is never a candidate either way: it's the path git expects us
-    // to (maybe) write the resolved result to.
-    if is_git_mergetool_temp_file(local, "LOCAL") {
-        delete_best_effort(local);
-    }
-    if is_git_mergetool_temp_file(remote, "REMOTE") {
-        delete_best_effort(remote);
-    }
-    if is_git_mergetool_temp_file(base, "BASE") {
-        delete_best_effort(base);
-    }
     Ok(LoadedInput {
         payload: MergeInputPayload {
             base: base_content.map(normalize_crlf),
@@ -211,31 +183,6 @@ pub fn load_merge_input(
         },
         line_ending,
     })
-}
-
-/// Best-effort delete: a failure here (permissions, already gone, etc.) must
-/// never block the merge UI from opening, so errors are silently ignored.
-fn delete_best_effort(path: &Path) {
-    let _ = fs::remove_file(path);
-}
-
-/// Whether `path`'s file stem ends in git's own mergetool temp-file naming
-/// convention for `role` (`"BASE"`/`"LOCAL"`/`"REMOTE"`) — `<name>_<role>_<pid>`,
-/// e.g. `team-roster_LOCAL_18572.tsx` — `<pid>` being one or more ASCII
-/// digits (the git process's pid). A path that doesn't match this exactly
-/// (a hand-picked file, a dev fixture, anything without the role+pid
-/// suffix) is never a deletion candidate, regardless of which CLI
-/// positional argument it was passed as.
-fn is_git_mergetool_temp_file(path: &Path, role: &str) -> bool {
-    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-        return false;
-    };
-    let marker = format!("_{role}_");
-    let Some(idx) = stem.rfind(&marker) else {
-        return false;
-    };
-    let suffix = &stem[idx + marker.len()..];
-    !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Writes `content` (LF-only, as produced by the merge UI) to `merged_path`
@@ -503,81 +450,6 @@ mod tests {
             assert!(err.starts_with(role), "{role}: {err}");
             assert!(err.contains("not valid UTF-8"), "{role}: {err}");
         }
-    }
-
-    #[test]
-    fn load_deletes_git_mergetool_style_temp_files_but_never_merged() {
-        // Named exactly like git's own mergetool temp files
-        // (`<name>_<ROLE>_<pid>.<ext>`), the only thing that makes a path a
-        // deletion candidate (see `is_git_mergetool_temp_file`).
-        let dir = tempfile::tempdir().unwrap();
-        let base_path = dir.path().join("pricing_BASE_18572.rs");
-        let local_path = dir.path().join("pricing_LOCAL_18572.rs");
-        let remote_path = dir.path().join("pricing_REMOTE_18572.rs");
-        std::fs::write(&base_path, "b\n").unwrap();
-        std::fs::write(&local_path, "l\n").unwrap();
-        std::fs::write(&remote_path, "r\n").unwrap();
-        let merged_path = dir.path().join("sub").join("pricing.rs");
-        std::fs::create_dir_all(merged_path.parent().unwrap()).unwrap();
-        std::fs::write(&merged_path, "conflict markers\n").unwrap();
-
-        load_merge_input(&base_path, &local_path, &remote_path, &merged_path).unwrap();
-
-        assert!(!base_path.exists());
-        assert!(!local_path.exists());
-        assert!(!remote_path.exists());
-        assert!(merged_path.exists(), "merged must never be deleted");
-    }
-
-    #[test]
-    fn load_leaves_plain_named_inputs_on_disk_untouched() {
-        // Conflate's 4 positional CLI args are its whole public contract
-        // (see `cli.rs`), invokable directly on real files — not only as
-        // git's own disposable mergetool temp files. This repo's own
-        // `pnpm run dev:stub` points conflate straight at the checked-in
-        // `dev-fixtures/sample/*.ts`; a plain name like `base.txt` must
-        // never be treated as disposable just because it was passed as the
-        // `base` argument.
-        let dir = tempfile::tempdir().unwrap();
-        write_inputs(dir.path(), Some(b"b\n"), b"l\n", b"r\n");
-        load(dir.path()).unwrap();
-        assert!(dir.path().join("base.txt").exists());
-        assert!(dir.path().join("local.txt").exists());
-        assert!(dir.path().join("remote.txt").exists());
-    }
-
-    #[test]
-    fn is_git_mergetool_temp_file_matches_only_the_exact_role_and_pid_suffix() {
-        let yes = [
-            ("pricing_LOCAL_18572.rs", "LOCAL"),
-            ("a_file_with_underscores_BASE_1.ts", "BASE"),
-            ("x_REMOTE_999999.tsx", "REMOTE"),
-        ];
-        for (name, role) in yes {
-            assert!(
-                is_git_mergetool_temp_file(Path::new(name), role),
-                "{name} should match role {role}"
-            );
-        }
-        let no = [
-            ("base.txt", "BASE"),
-            ("pricing_LOCAL_.rs", "LOCAL"),    // no pid digits
-            ("pricing_LOCAL_abc.rs", "LOCAL"), // non-numeric suffix
-            ("pricing_REMOTE_12.rs", "LOCAL"), // wrong role
-        ];
-        for (name, role) in no {
-            assert!(
-                !is_git_mergetool_temp_file(Path::new(name), role),
-                "{name} should NOT match role {role}"
-            );
-        }
-    }
-
-    #[test]
-    fn load_with_no_base_file_does_not_error_trying_to_delete_it() {
-        let dir = tempfile::tempdir().unwrap();
-        write_inputs(dir.path(), None, b"l\n", b"r\n");
-        assert!(load(dir.path()).is_ok());
     }
 
     #[test]

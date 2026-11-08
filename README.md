@@ -87,19 +87,12 @@ Add it to `~/.gitconfig`:
     trustExitCode = true
 [merge]
     tool = conflate
-[mergetool]
-    keepBackup = false
 ```
 
-`mergetool.keepBackup = false` stops git from keeping a `<file>.orig` copy of
-the conflicted file after every successful merge (git's own default is to
-keep it). Conflate also deletes its own `$BASE`/`$LOCAL`/`$REMOTE` temp
-files as soon as it reads them, whether you save or abort — but only when
-they're actually named like git's own mergetool temp files
-(`<name>_BASE_<pid>`/`_LOCAL_<pid>`/`_REMOTE_<pid>`); a plain path handed to
-`conflate` directly (e.g. for manual testing) is never touched. With
-`keepBackup` set, nothing should linger in your working tree after a normal
-`git mergetool` run.
+Git keeps a `<file>.orig` copy of the conflicted file after every successful
+merge, for every mergetool. To stop that, run
+`git config --global mergetool.keepBackup false` (optional). Git removes the
+`$BASE`/`$LOCAL`/`$REMOTE` temp files itself, including when you abort.
 
 The CLI binary needs to be on your `$PATH` as `conflate`:
 
