@@ -81,6 +81,45 @@ type, re-check that the generated TypeScript bindings (consumed via
 `src/ipc.ts`) are still in sync — the Rust test suite includes a binding
 export check for this.
 
+## Releases and auto-update
+
+Conflate checks `dnwjn/conflate`'s GitHub releases for a newer version a few
+seconds after launch and stays silent if there isn't one. If an update is
+found, a dismissible banner appears; dismissal is per-version, not
+per-session. Clicking the version number in the toolbar checks manually, and
+the update dialog downloads and installs in place ("Restart to Update").
+
+This uses [`tauri-plugin-updater`](https://v2.tauri.app/plugin/updater/),
+which verifies every download against an ed25519 signature before installing
+it. That is separate from (and no substitute for) the Gatekeeper
+code-signing/notarization this project doesn't do.
+
+**The repo must be public.** The updater does a plain HTTPS GET against
+`https://github.com/dnwjn/conflate/releases/latest/download/latest.json` (the
+manifest `tauri-apps/tauri-action` publishes on every release) and then a
+second GET for the matched binary asset. Neither request can carry auth, so a
+fork that wants its own updater feed has to be public too.
+
+### One-time maintainer setup (not automated)
+
+Generate a signing keypair with the project's own `@tauri-apps/cli`:
+`pnpm exec tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
+somewhere outside the repo). Put the printed public key in
+`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing the
+existing one if you fork), and add the private key's contents (and its
+password, if set) as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Never commit the private key.
+
+### Exercising the update UI in development
+
+There's no real release endpoint to check against during development.
+`pnpm run dev:stub` sets `VITE_STUB_UPDATE`, which makes `checkForUpdate`
+(`src/update.ts`) skip the real plugin call and return a canned "newer
+version available" update, so the banner/modal/download-progress flow can be
+exercised end to end without a real Tauri runtime or a published release. Set
+the same variable yourself (`VITE_STUB_UPDATE=1 pnpm run dev`) to get the same
+effect in the plain browser preview.
+
 ## Commit/PR conventions
 
 Keep commits scoped and use [Conventional Commits](https://www.conventionalcommits.org/)
