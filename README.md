@@ -1,34 +1,39 @@
 # Conflate
 
-Conflate is a small, modern desktop tool for resolving Git merge conflicts: a
-3-pane (local / result / remote) merge view with click/arrow-driven hunk
-resolution and solid auto-merge of non-conflicting changes, built with
-[Tauri 2](https://tauri.app) (Rust backend, vanilla TypeScript frontend).
+[![Release](https://img.shields.io/github/v/release/dnwjn/conflate?style=flat-square)](../../releases)
+[![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue?style=flat-square)](LICENSE)
+![Platform: macOS (Apple Silicon)](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey?style=flat-square)
 
-It was built to fill a specific gap: using [lazygit](https://github.com/jesseduffield/lazygit)
-day to day but missing an editor-grade conflict UI — PhpStorm's 3-way layout
-without pulling in all of PhpStorm.
+**A lightweight, modern desktop app for resolving Git merge conflicts.** A 3-pane
+(local / result / remote) merge view, one-click hunk resolution, and
+auto-merge of everything that doesn't truly conflict.
 
-## What Conflate is not
+![Conflate resolving a merge conflict](docs/media/hero.gif)
 
-- **Not a git client.** Conflate resolves the conflict in one file, one
-  invocation at a time, and exits. It does not browse repositories, show
-  history, stage files, or run git commands itself — [lazygit](https://github.com/jesseduffield/lazygit)
-  (or your git client of choice) still owns everything else. Conflate is
-  invoked *by* git (via `git mergetool`), not the other way around.
-- **Not stateful.** There is no project memory or saved conflict history
-  beyond a few UI preferences (theme override, window size).
-- **Not a multi-file merge tool.** Each invocation handles exactly one
-  `<base> <local> <remote> <merged>` quartet, matching git's own mergetool
-  substitution convention.
+## Why Conflate
 
-## Platform support
+- **3-way view** — local, result and remote side by side, with connectors
+  showing where each change lands.
+- **Click or arrow your way through** — accept local, remote or both per hunk,
+  jump between conflicts with the keyboard.
+- **Auto-merge that stays out of your way** — one-sided and identical changes
+  are applied for you; only genuinely overlapping edits are left to resolve.
+- **Word-level diffs** — see exactly what changed inside a line.
+- **Light and dark** — follows your system theme, with a manual override.
+- **Plugs into `git mergetool`** — and therefore into
+  [lazygit](https://github.com/jesseduffield/lazygit), which shells out to it.
+- **Stays up to date** — checks GitHub releases and offers a one-click update.
 
-**macOS only (Apple Silicon) for v1.** This is the only platform Conflate is built for,
-tested on, and ships releases for. The dependency set has nothing
-macOS-specific in it, so it likely builds and runs on Linux/Windows too, but
-that is untested and unsupported — please don't file issues for those
-platforms against v1.
+<table>
+  <tr>
+    <td><img src="docs/media/screenshot-dark.png" alt="Conflate, dark theme"></td>
+    <td><img src="docs/media/screenshot-light.png" alt="Conflate, light theme"></td>
+  </tr>
+  <tr>
+    <td>Dark theme</td>
+    <td>Light theme</td>
+  </tr>
+</table>
 
 ## Install
 
@@ -63,50 +68,6 @@ ln -s /Applications/Conflate.app/Contents/MacOS/conflate /usr/local/bin/conflate
 ### Build from source
 
 See [Build from source](#build-from-source) below.
-
-## Self-update
-
-Conflate checks `dnwjn/conflate`'s GitHub releases for a newer version a few
-seconds after launch, and silently does nothing if there isn't one — no
-"you're up to date" popup on every run. If an update is found, a dismissible
-banner appears; dismissing it means that version won't be mentioned again
-(dismissal is per-version, not per-session). Click the version number in the
-toolbar at any time to check manually. The update dialog downloads and
-installs the new version in place; apply it with "Restart to Update".
-
-This uses [`tauri-plugin-updater`](https://v2.tauri.app/plugin/updater/),
-which verifies every downloaded update against an ed25519 signature before
-installing it — a separate mechanism from (and no substitute for) the
-Gatekeeper code-signing/notarization this project doesn't do (see
-[Download a release](#download-a-release)).
-
-**This requires the repo to be public.** The updater does a plain HTTPS GET
-against `https://github.com/dnwjn/conflate/releases/latest/download/latest.json`
-(the standard manifest URL `tauri-apps/tauri-action` publishes to on every
-release) and then a second GET for the matched binary asset. Neither request
-can carry auth, so a private repo's release assets simply aren't reachable
-this way — no workaround is built in for that case, so a fork that wants
-its own updater feed has to be public too.
-
-### One-time maintainer setup (not automated)
-
-Generate a signing keypair with the project's own `@tauri-apps/cli`:
-`pnpm exec tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
-somewhere outside the repo). Put the printed public key in
-`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing
-the existing one if you fork), and add the private key's contents (and its password, if set)
-as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Never commit the private key.
-
-### Exercising the update UI in development
-
-There's no real release endpoint to check against during development.
-`pnpm run dev:stub` sets `VITE_STUB_UPDATE`, which makes `checkForUpdate`
-(`src/update.ts`) skip the real plugin call and return a canned "newer
-version available" update instead, so the banner/modal/download-progress
-flow can be exercised end to end without a real Tauri runtime or a
-published release. Set the same variable yourself (`VITE_STUB_UPDATE=1 pnpm
-run dev`) to get the same effect in the plain browser preview.
 
 ## Set up as your git mergetool
 
@@ -165,7 +126,8 @@ lazygit-specific configuration is needed. Trigger it from lazygit's Files
 panel on a conflicted file (the default binding is `M` for "resolve merge
 conflict with an external tool").
 
-### Exit codes
+<details>
+<summary><b>Exit codes</b></summary>
 
 - `0` — saved: the `merged` path was written via **Save & Finish**. Usually
   that means every conflict was resolved, but it also covers a forced save
@@ -180,6 +142,49 @@ conflict with an external tool").
 - `2` — fatal error before any window opens: bad arguments, a missing or
   unreadable `local`/`remote`, or an input that is not UTF-8 text (e.g. a
   binary file).
+
+</details>
+
+## Keyboard shortcuts
+
+The full binding table (from `src/keymap.ts`, also shown in-app via the `?`
+help overlay):
+
+| Action | Shortcut |
+|---|---|
+| Next conflict | `⌥⌘.` |
+| Previous conflict | `⌥⌘,` |
+| Accept local | `⌥⌘←` |
+| Accept remote | `⌥⌘→` |
+| Accept both (local, then remote) | `⌥⌘↓` |
+| Save & finish | `⌘S` |
+| Abort merge | `⌘W` |
+| Toggle word-diff highlighting | `⌥⌘H` |
+| Toggle theme | `⌥⌘T` |
+| Show keyboard shortcuts | `?` |
+
+All chords match on physical key position (not the character produced), so
+they're reliable regardless of what `⌥` remaps `.`/`,` to on your layout.
+
+## What Conflate is not
+
+- **Not a git client.** Conflate resolves the conflict in one file, one
+  invocation at a time, and exits. It does not browse repositories, show
+  history, stage files, or run git commands itself — [lazygit](https://github.com/jesseduffield/lazygit)
+  (or your git client of choice) still owns everything else. Conflate is
+  invoked *by* git (via `git mergetool`), not the other way around.
+- **Not stateful.** There is no project memory or saved conflict history
+  beyond a few UI preferences (theme override, window size).
+- **Not a multi-file merge tool.** Each invocation handles exactly one
+  `<base> <local> <remote> <merged>` quartet, matching git's own mergetool
+  substitution convention.
+
+## Platform support
+
+**macOS only (Apple Silicon) for now.** This is the only platform Conflate is built for,
+tested on, and ships releases for. The dependency set has nothing
+macOS-specific in it, so it likely builds and runs on Linux/Windows too, but
+that is currently untested and unsupported.
 
 ## Known limitations
 
@@ -202,27 +207,6 @@ conflict with an external tool").
   `\r\r\n`) can be dropped, since CRLF normalization isn't fully idempotent
   on that specific byte sequence. This is a rare, pre-existing edge case,
   not something to design around for ordinary files.
-
-## Keyboard shortcuts
-
-The full binding table (from `src/keymap.ts`, also shown in-app via the `?`
-help overlay):
-
-| Action | Shortcut |
-|---|---|
-| Next conflict | `⌥⌘.` |
-| Previous conflict | `⌥⌘,` |
-| Accept local | `⌥⌘←` |
-| Accept remote | `⌥⌘→` |
-| Accept both (local, then remote) | `⌥⌘↓` |
-| Save & finish | `⌘S` |
-| Abort merge | `⌘W` |
-| Toggle word-diff highlighting | `⌥⌘H` |
-| Toggle theme | `⌥⌘T` |
-| Show keyboard shortcuts | `?` |
-
-All chords match on physical key position (not the character produced), so
-they're reliable regardless of what `⌥` remaps `.`/`,` to on your layout.
 
 ## Build from source
 
