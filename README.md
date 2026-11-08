@@ -9,11 +9,6 @@ It was built to fill a specific gap: using [lazygit](https://github.com/jesseduf
 day to day but missing an editor-grade conflict UI — PhpStorm's 3-way layout
 without pulling in all of PhpStorm.
 
-> [!NOTE]
-> **TODO (project owner):** add a screenshot or short screen-recording of the
-> 3-pane merge view here. None is included in this README — it needs to be
-> captured from a real running build, which this task could not do.
-
 ## What Conflate is not
 
 - **Not a git client.** Conflate resolves the conflict in one file, one
@@ -29,7 +24,7 @@ without pulling in all of PhpStorm.
 
 ## Platform support
 
-**macOS only for v1.** This is the only platform Conflate is built for,
+**macOS only (Apple Silicon) for v1.** This is the only platform Conflate is built for,
 tested on, and ships releases for. The dependency set has nothing
 macOS-specific in it, so it likely builds and runs on Linux/Windows too, but
 that is untested and unsupported — please don't file issues for those
@@ -90,17 +85,16 @@ against `https://github.com/dnwjn/conflate/releases/latest/download/latest.json`
 (the standard manifest URL `tauri-apps/tauri-action` publishes to on every
 release) and then a second GET for the matched binary asset. Neither request
 can carry auth, so a private repo's release assets simply aren't reachable
-this way — no workaround is built in for that case. `dnwjn/conflate` is
-currently private; the self-updater won't find anything until the repo is
-made public.
+this way — no workaround is built in for that case, so a fork that wants
+its own updater feed has to be public too.
 
 ### One-time maintainer setup (not automated)
 
 Generate a signing keypair with the project's own `@tauri-apps/cli`:
 `pnpm exec tauri signer generate -w ~/.tauri/conflate-updater.key` (write it
 somewhere outside the repo). Put the printed public key in
-`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing the
-placeholder), and add the private key's contents (and its password, if set)
+`src-tauri/tauri.conf.json`'s `plugins.updater.pubkey` (replacing
+the existing one if you fork), and add the private key's contents (and its password, if set)
 as GitHub Actions secrets: `TAURI_SIGNING_PRIVATE_KEY`,
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Never commit the private key.
 
@@ -239,7 +233,7 @@ Requirements:
 - macOS, with the Tauri 2 [macOS prerequisites](https://tauri.app/start/prerequisites/)
 
 ```bash
-git clone https://github.com/<owner>/conflate.git
+git clone https://github.com/dnwjn/conflate.git
 cd conflate
 pnpm install
 pnpm run tauri build
@@ -262,9 +256,7 @@ The auto-merge algorithm is a standard base-anchored 3-way merge (same
 family as `git merge-file`/`diff3`): hunks where only one side diverges from
 base are auto-applied, hunks where both sides make the identical change are
 auto-applied, and only genuinely overlapping, differing edits are left for
-you to resolve by hand. See
-`docs/design.md` for the full design
-spec.
+you to resolve by hand.
 
 ## License
 

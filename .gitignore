@@ -22,7 +22,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# Scratch workspace (plans' ledgers, briefs,
-# review packages). Never committed, even if still present.
-.scratch/
