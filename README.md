@@ -260,4 +260,4 @@ you to resolve by hand.
 
 ## License
 
-Conflate is licensed under the [GNU General Public License v3.0](LICENSE).
+Conflate is licensed under the [GNU General Public License v3.0 or later](LICENSE).

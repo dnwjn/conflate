@@ -2,6 +2,11 @@
     "name": "conflate",
     "private": true,
     "version": "0.1.3",
+    "license": "GPL-3.0-or-later",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/dnwjn/conflate.git"
+    },
     "type": "module",
     "packageManager": "pnpm@12.15.0",
     "scripts": {
