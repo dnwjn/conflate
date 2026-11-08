@@ -1,6 +1,6 @@
 [package]
 name = "conflate"
-version = "0.1.4"
+version = "0.1.5"
 description = "Conflate: a desktop merge-conflict tool"
 authors = ["dnwjn"]
 license = "GPL-3.0-or-later"
