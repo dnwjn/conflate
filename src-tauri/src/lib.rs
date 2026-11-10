@@ -77,12 +77,26 @@ fn run_app(
     #[cfg(debug_assertions)]
     export_bindings();
 
-    let base = tauri::Builder::default()
+    let mut base = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init());
+
+    // Lets an AI assistant drive the real running app (find/click/type DOM
+    // elements, screenshot the webview, call IPC commands directly) via
+    // https://github.com/hypothesi/mcp-server-tauri. Debug-only: never
+    // compiled into release builds, so it can't ship as an attack surface.
+    #[cfg(debug_assertions)]
+    {
+        base = base.plugin(
+            tauri_plugin_mcp_bridge::Builder::new()
+                .bind_address("127.0.0.1")
+                .build(),
+        );
+    }
+
     let app = configure(base)
         .invoke_handler(builder.invoke_handler())
         .build(tauri::generate_context!())
