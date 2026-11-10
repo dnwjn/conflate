@@ -1,4 +1,5 @@
 import { KEYMAP_BINDINGS } from './keymap';
+import { renderMarkdown } from './markdown';
 import {
     downloadAndInstallUpdate,
     restartToApplyUpdate,
@@ -201,11 +202,12 @@ export function wireUpdateUi(
 }
 
 /**
- * The update dialog: version diff, truncated release notes with a link to
- * the full GitHub release, a download progress bar, and one action button
- * cycling `Update` -> `Downloading... NN%` (disabled) -> `Restart to Update`.
- * Reuses the `.modal-backdrop`/`.modal-card` look already established by
- * `confirmDialog`/`showShortcutsHelp` rather than inventing new chrome.
+ * The update dialog: version diff, full release notes in a scrollable
+ * panel with a link to the full GitHub release, a download progress bar,
+ * and one action button cycling `Update` -> `Downloading... NN%`
+ * (disabled) -> `Restart to Update`. Reuses the `.modal-backdrop` look
+ * already established by `confirmDialog`/`showShortcutsHelp` rather than
+ * inventing new chrome.
  */
 export function showUpdateModal(
     root: HTMLElement,
@@ -215,7 +217,7 @@ export function showUpdateModal(
     const restart = options.restart ?? restartToApplyUpdate;
     const previousFocus = document.activeElement as HTMLElement | null;
     const backdrop = el('div', 'modal-backdrop');
-    const card = el('div', 'modal-card');
+    const card = el('div', 'modal-card modal-card-update');
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-modal', 'true');
 
@@ -229,10 +231,9 @@ export function showUpdateModal(
         ),
     );
     if (update.body) {
-        const notes = update.body.trim();
-        const truncated =
-            notes.length > 180 ? `${notes.slice(0, 180).trimEnd()}...` : notes;
-        body.append(el('p', 'update-notes', truncated));
+        const notes = el('div', 'update-notes');
+        notes.innerHTML = renderMarkdown(update.body.trim());
+        body.append(notes);
     }
     const notesLink = document.createElement('a');
     notesLink.href = `${RELEASES_URL}/tag/v${update.version}`;

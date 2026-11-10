@@ -39,6 +39,28 @@ Notes:
 See `TESTING.md` for the manual smoke-test checklist to run through after
 any change to the merge view (`src/merge/threeWayView.ts`).
 
+### Agent-driven app testing (MCP bridge)
+
+[`tauri-plugin-mcp-bridge`](https://github.com/hypothesi/mcp-server-tauri)
+lets an AI assistant drive the real running app directly — find/click/type
+into DOM elements, screenshot the webview, execute JS, and call Tauri IPC
+commands (e.g. `save_result`/`abort_merge`) directly to check their
+exit-code contract — instead of relying on screenshots alone or a
+mocked-IPC/jsdom harness.
+
+Registered as a **debug-only** dependency (`#[cfg(debug_assertions)]` in
+`src-tauri/src/lib.rs`), so it's never compiled into release builds. Add the
+MCP server for your assistant with:
+
+```bash
+npx -y @a1st/aix add mcp tauri --command 'npx @hypothesi/tauri-mcp-server' --user
+```
+
+Then start the app in debug mode (`pnpm run dev:stub` or a debug build) and
+use the `driver_session` tool to connect. Note this drives webview content,
+not native window chrome (traffic lights, ⌘Q) — those still need a manual
+pass per `TESTING.md`.
+
 ## Project layout
 
 - `src-tauri/src/` — Rust backend: CLI parsing (`cli.rs`), Tauri commands

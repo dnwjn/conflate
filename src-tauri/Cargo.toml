@@ -33,6 +33,7 @@ similar = "3.2.1"
 specta = { version = "2.0.0-rc.26", features = ["derive"] }
 specta-typescript = "0.0.13"
 tauri-specta = { version = "2.0.0-rc.26", features = ["derive", "typescript"] }
+tauri-plugin-mcp-bridge = "0.13.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

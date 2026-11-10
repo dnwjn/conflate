@@ -117,5 +117,7 @@ src-tauri/target/release/conflate "$F/base.ts" "$F/local.ts" "$F/remote.ts" /tmp
   1400x420 and in both color schemes. A 6,000-line file stayed responsive while typing: median 0.5 ms and
   max 4.7 ms per keystroke, no long tasks. The native window launched and stayed
   up, but its contents could not be captured from the agent session (no
-  screen-recording permission). So these items still need a human pass in the
-  real app: native window appearance, and process exit codes on Save/Abort.
+  screen-recording permission). See CONTRIBUTING.md for a more direct way
+  for an AI assistant to drive the webview content and IPC commands
+  (`tauri-plugin-mcp-bridge`) — native window chrome and process exit codes
+  on Save/Abort still need a human pass in the real app.

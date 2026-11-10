@@ -514,6 +514,19 @@ test('showUpdateModal walks Update -> Downloading -> Restart to Update, then cal
     vi.useRealTimers();
 });
 
+test('showUpdateModal shows the full release notes body without truncating it', () => {
+    const longBody = `## What's Changed\n${'* PR title\n'.repeat(60)}`;
+    const update = createMockUpdate({
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: longBody,
+    });
+    showUpdateModal(root, update);
+    const notes = root.querySelector('.update-notes');
+    expect(notes?.textContent).toContain("What's Changed");
+    expect(notes?.querySelectorAll('li')).toHaveLength(60);
+});
+
 test('showUpdateModal recovers from a failed download instead of getting stuck on "Downloading..."', async () => {
     const update = {
         version: '0.2.0',
