@@ -9,8 +9,7 @@ import {
     redoDepth,
     undoDepth,
 } from '@codemirror/commands';
-import { LanguageDescription, syntaxHighlighting } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { syntaxHighlighting } from '@codemirror/language';
 import { Chunk, type DiffConfig } from '@codemirror/merge';
 import {
     type ChangeDesc,
@@ -58,7 +57,8 @@ import {
 } from './hunkConnectors';
 import { hunkIndexAt as hunkIndexForCursor } from './hunkNav';
 import { computePullChange } from './pullChange';
-import { wordDiffRanges } from './wordDiff';
+import { buildPaneSkeleton, updateHeader } from './threeWayDom';
+import { loadLanguage, loadWordDiffs } from './wordDiffLoader';
 
 export type Side = 'local' | 'remote';
 
@@ -89,10 +89,6 @@ export interface ThreeWayViewOptions {
     /** Called whenever the result editor's undo/redo availability may have changed. */
     onHistoryChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
 }
-
-/** Keeps a side pane usable and the result pane from being squeezed away by a drag. */
-const MIN_SIDE_PANE_WIDTH = 220;
-const MIN_RESULT_PANE_WIDTH = 240;
 
 export interface ThreeWayView {
     localView: EditorView;
@@ -412,116 +408,20 @@ export function createThreeWayView(
     let destroyed = false;
 
     // --- DOM skeleton ------------------------------------------------------
-    container.classList.add('tw-root');
-    const panes = document.createElement('div');
-    panes.className = 'tw-panes';
-    const makePane = (
-        kind: 'local' | 'result' | 'remote',
-        label: string,
-        sub: string,
-    ) => {
-        const pane = document.createElement('section');
-        pane.className = `tw-pane tw-pane-${kind}`;
-        const header = document.createElement('header');
-        header.className = 'tw-pane-header';
-        const dot = document.createElement('span');
-        dot.className = 'tw-dot';
-        const name = document.createElement('span');
-        name.className = 'tw-pane-label';
-        name.textContent = label;
-        const subLabel = document.createElement('span');
-        subLabel.className = 'tw-pane-sub';
-        subLabel.textContent = sub ? `· ${sub}` : '';
-        header.append(dot, name, subLabel);
-        const editor = document.createElement('div');
-        editor.className = 'tw-editor';
-        pane.append(header, editor);
-        panes.appendChild(pane);
-        return { root: pane, header, editor };
-    };
-    const makeDivider = (resizes: 'local' | 'remote') => {
-        const divider = document.createElement('div');
-        divider.className = 'tw-divider';
-        const spacer = document.createElement('div');
-        spacer.className = 'tw-divider-spacer';
-        const body = document.createElement('div');
-        body.className = 'tw-divider-body';
-        const svg = document.createElementNS(
-            'http://www.w3.org/2000/svg',
-            'svg',
-        );
-        svg.setAttribute('class', 'tw-connector-svg');
-        body.appendChild(svg);
-        divider.append(spacer, body);
-        divider.addEventListener('pointerdown', (event) => {
-            if (event.button !== 0) return;
-            // A ribbon connector owns its own click-to-navigate; don't start
-            // a resize drag when the pointer came down on one.
-            if (event.target instanceof SVGPathElement) return;
-            event.preventDefault();
-            const pane = (resizes === 'local' ? localPane : remotePane).root;
-            const startX = event.clientX;
-            const startWidth = pane.getBoundingClientRect().width;
-            const containerWidth = panes.getBoundingClientRect().width;
-            const otherSideWidth = (
-                resizes === 'local' ? remotePane : localPane
-            ).root.getBoundingClientRect().width;
-            const dividerWidths =
-                localDividerParts.divider.getBoundingClientRect().width +
-                remoteDividerParts.divider.getBoundingClientRect().width;
-            const maxWidth = Math.max(
-                MIN_SIDE_PANE_WIDTH,
-                containerWidth -
-                    otherSideWidth -
-                    dividerWidths -
-                    MIN_RESULT_PANE_WIDTH,
-            );
-            divider.setPointerCapture(event.pointerId);
-            const onMove = (moveEvent: PointerEvent) => {
-                const delta = moveEvent.clientX - startX;
-                const signedDelta = resizes === 'local' ? delta : -delta;
-                const width = Math.min(
-                    maxWidth,
-                    Math.max(MIN_SIDE_PANE_WIDTH, startWidth + signedDelta),
-                );
-                pane.style.flexBasis = `${width}px`;
-            };
-            const onUp = () => {
-                divider.removeEventListener('pointermove', onMove);
-                divider.removeEventListener('pointerup', onUp);
-                options.onPaneWidthsChange?.({
-                    local: localPane.root.getBoundingClientRect().width,
-                    remote: remotePane.root.getBoundingClientRect().width,
-                });
-            };
-            divider.addEventListener('pointermove', onMove);
-            divider.addEventListener('pointerup', onUp);
-        });
-        divider.addEventListener('dblclick', () => {
-            const pane = (resizes === 'local' ? localPane : remotePane).root;
-            pane.style.flexBasis = '';
-            options.onPaneWidthsChange?.({
-                local: localPane.root.getBoundingClientRect().width,
-                remote: remotePane.root.getBoundingClientRect().width,
-            });
-        });
-        return { divider, svg };
-    };
-    const localPane = makePane('local', 'LOCAL', options.localLabel ?? 'HEAD');
-    if (options.paneWidths)
-        localPane.root.style.flexBasis = `${options.paneWidths.local}px`;
-    const localDividerParts = makeDivider('local');
-    panes.appendChild(localDividerParts.divider);
-    const resultPane = makePane('result', 'RESULT', 'editable');
-    const remoteDividerParts = makeDivider('remote');
-    panes.appendChild(remoteDividerParts.divider);
-    const remotePane = makePane('remote', 'REMOTE', options.remoteLabel ?? '');
-    if (options.paneWidths)
-        remotePane.root.style.flexBasis = `${options.paneWidths.remote}px`;
-    const unresolvedPill = document.createElement('span');
-    unresolvedPill.className = 'tw-unresolved-pill';
-    resultPane.header.appendChild(unresolvedPill);
-    container.appendChild(panes);
+    const {
+        panes,
+        localPane,
+        resultPane,
+        remotePane,
+        localDividerParts,
+        remoteDividerParts,
+        unresolvedPill,
+    } = buildPaneSkeleton(container, {
+        localLabel: options.localLabel,
+        remoteLabel: options.remoteLabel,
+        paneWidths: options.paneWidths,
+        onPaneWidthsChange: options.onPaneWidthsChange,
+    });
 
     // --- Side panes ---------------------------------------------------------
     const sideExtensions = [
@@ -720,7 +620,7 @@ export function createThreeWayView(
                         update.selectionSet ||
                         update.transactions.some((tr) => tr.effects.length)
                     ) {
-                        updateHeader();
+                        updateHeader(conflictModel, unresolvedPill);
                         options.onUpdate?.();
                     }
                     if (
@@ -1056,79 +956,6 @@ export function createThreeWayView(
         }
     }
 
-    // --- Word diff (static: local vs remote inside each conflict) -----------
-    async function loadWordDiffs() {
-        const compute = options.computeWordDiff;
-        if (!compute) return;
-        const localDoc = localView.state.doc;
-        const remoteDoc = remoteView.state.doc;
-        const jobs: Promise<void>[] = [];
-        for (const hunk of hunks) {
-            if (hunk.kind !== 'Conflict') continue;
-            const count = hunk.local_end_line - hunk.local_start_line;
-            // Per spec: only line-paired regions get word diff; hunks whose sides
-            // have different line counts fall back to line-level highlighting.
-            if (
-                count === 0 ||
-                count !== hunk.remote_end_line - hunk.remote_start_line
-            )
-                continue;
-            for (let k = 0; k < count; k++) {
-                const localLineNo = hunk.local_start_line + k + 1;
-                const remoteLineNo = hunk.remote_start_line + k + 1;
-                if (
-                    localLineNo > localDoc.lines ||
-                    remoteLineNo > remoteDoc.lines
-                )
-                    continue;
-                const localLine = localDoc.line(localLineNo);
-                const remoteLine = remoteDoc.line(remoteLineNo);
-                if (localLine.text === remoteLine.text) continue;
-                jobs.push(
-                    compute(localLine.text, remoteLine.text).then((ops) => {
-                        const ranges = wordDiffRanges(
-                            ops,
-                            localLine.from,
-                            remoteLine.from,
-                        );
-                        wordMarks.local.push(...ranges.old);
-                        wordMarks.remote.push(...ranges.new);
-                    }),
-                );
-            }
-        }
-        const results = await Promise.allSettled(jobs);
-        const failed = results.filter((r) => r.status === 'rejected');
-        if (failed.length)
-            console.warn(
-                `word diff failed for ${failed.length} line(s)`,
-                (failed[0] as PromiseRejectedResult).reason,
-            );
-        if (!destroyed && jobs.length) pushSideDecorations();
-    }
-
-    // --- Syntax highlighting ------------------------------------------------
-    async function loadLanguage() {
-        const hint = input.languageHint;
-        if (!hint) return;
-        const description =
-            LanguageDescription.matchFilename(languages, `file.${hint}`) ??
-            LanguageDescription.matchLanguageName(languages, hint, true);
-        if (!description) return;
-        try {
-            const support = await description.load();
-            if (destroyed) return;
-            for (const view of [localView, resultView, remoteView]) {
-                view.dispatch({ effects: language.reconfigure(support) });
-            }
-        } catch (err) {
-            console.warn(
-                `could not load syntax highlighting for .${hint}`,
-                err,
-            );
-        }
-    }
-
     // --- Scroll sync (whichever pane the user scrolls drives the other two) -
     /**
      * Keeps all three panes locked together regardless of which one actually
@@ -1302,17 +1129,6 @@ export function createThreeWayView(
     // RAF-coalesced, so it costs nothing to keep as a second safety net.
     const onWindowResize = () => scheduleConnectorRender();
     window.addEventListener('resize', onWindowResize);
-
-    // --- Header ---------------------------------------------------------------
-    function updateHeader() {
-        const unresolved = conflictModel.unresolvedCount();
-        unresolvedPill.textContent =
-            unresolved === 0 ? 'all resolved' : `${unresolved} unresolved`;
-        unresolvedPill.classList.toggle(
-            'tw-unresolved-pill-done',
-            unresolved === 0,
-        );
-    }
 
     // --- Public API -----------------------------------------------------------
     function pullText(
@@ -1511,10 +1327,23 @@ export function createThreeWayView(
         resultView.focus();
     }
 
-    updateHeader();
+    updateHeader(conflictModel, unresolvedPill);
     rediff();
-    void loadLanguage();
-    void loadWordDiffs();
+    void loadLanguage({
+        languageHint: input.languageHint,
+        language,
+        views: [localView, resultView, remoteView],
+        isDestroyed: () => destroyed,
+    });
+    void loadWordDiffs({
+        computeWordDiff: options.computeWordDiff,
+        hunks,
+        localView,
+        remoteView,
+        wordMarks,
+        isDestroyed: () => destroyed,
+        pushSideDecorations,
+    });
     options.onHistoryChange?.({
         canUndo: undoDepth(resultView.state) > 0,
         canRedo: redoDepth(resultView.state) > 0,
