@@ -464,6 +464,22 @@ button:focus-visible {
 	min-width: 220px;
 }
 
+/* Applied to both side panes for the duration of a divider drag (see
+   `threeWayDom.ts`'s `buildPaneSkeleton`). Without this, the drag visibly
+   lags the cursor: with `flex-shrink: 1` on all three panes, any reflow
+   that needs to shrink something (RESULT's own content-based `auto` basis
+   competing for space) spreads that shrink across all three flex items
+   instead of just RESULT, so the rendered width of the dragged pane ends
+   up less than the `flexBasis` the drag handler just set. Pinning shrink
+   to 0 here makes RESULT (floored at its own `min-width` below) the sole
+   thing absorbing that pressure while a drag is active, matching what the
+   handler's own `maxWidth` clamp already assumes. Not applied permanently
+   — see the `.tw-panes` comment: at rest, all three panes are meant to
+   shrink together on a narrow window. */
+.tw-pane-dragging {
+	flex-shrink: 0;
+}
+
 .tw-pane-result {
 	flex: 1 1 auto;
 	/* Keep this in sync with `MIN_RESULT_PANE_WIDTH` in threeWayView.ts. The
