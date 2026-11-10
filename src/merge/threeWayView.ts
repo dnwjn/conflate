@@ -51,6 +51,7 @@ import {
     isWhitespaceOnlyConflict,
 } from './conflictModel';
 import {
+    type ConnectorGeometry,
     computeConnectorGeometry,
     ribbonPath,
     type Span,
@@ -922,11 +923,58 @@ export function createThreeWayView(
         svg.appendChild(path);
         return path;
     }
+    // Replaces a pooled path with a brand new element carrying the same
+    // attributes, instead of mutating the existing node's `d` in place.
+    // WKWebView has been observed leaving a stale (sometimes visibly
+    // tiled/repeated) paint of a long-lived path during fast/continuous
+    // scrolling of the adjacent pane content, that nothing short of an
+    // unrelated forced style recalc (hovering the path, a focus change)
+    // would flush — a fresh node has no stale backing-store association to
+    // begin with, so there's nothing to flush.
+    function replaceConnectorPath(
+        svg: SVGSVGElement,
+        old: SVGPathElement,
+        hunkIndex: number,
+        cls: string,
+        d: string,
+    ): SVGPathElement {
+        const path = document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'path',
+        );
+        path.dataset.hunkIndex = String(hunkIndex);
+        path.addEventListener('click', () => focusHunk(hunkIndex));
+        path.setAttribute('class', cls);
+        path.setAttribute('d', d);
+        svg.replaceChild(path, old);
+        return path;
+    }
 
     let connectorFrame: number | null = null;
+    // Leading + guaranteed trailing: the first call in a quiet period draws
+    // right away (no one-frame wait, so connectors never visibly trail a
+    // quick scroll reversal), and a second pass always follows one frame
+    // later. The trailing pass isn't just for coalescing further calls
+    // during the frame — CodeMirror's own internal viewport remeasure after
+    // a scroll is itself deferred to the next animation frame, so a
+    // `lineBlockAt` read made synchronously inside the same scroll/resize
+    // event that triggered this call can reflect pre-scroll layout for one
+    // frame. Without the unconditional trailing pass, a lone scroll tick's
+    // leading render could stay wrong forever (nothing else re-renders it).
     function scheduleConnectorRender() {
         if (destroyed) return;
-        if (connectorFrame !== null) scheduler.cancel(connectorFrame);
+        // Always draw immediately with whatever scrollTop/geometry is
+        // current right now — never skip this because a frame is already
+        // pending. Under a fast/continuous scroll burst (rapid wheel
+        // events, a flung trackpad scroll), events can arrive faster than
+        // one animation frame apart; skipping the synchronous draw here
+        // left the ribbon showing a stale position for the whole burst,
+        // only snapping to correct once the single trailing rAF finally
+        // got a turn. The rAF below is just a safety net for CodeMirror's
+        // own deferred internal remeasure (e.g. after a decoration change),
+        // not the primary way this draws.
+        renderConnectors();
+        if (connectorFrame !== null) return;
         connectorFrame = scheduler.request(() => {
             connectorFrame = null;
             renderConnectors();
@@ -955,11 +1003,21 @@ export function createThreeWayView(
         // difference. Self-calibrating against whatever the true cause is
         // (CM6 content padding, gutter/content alignment, etc.) rather than
         // hardcoding a guessed constant.
+        //
+        // CM6 virtualizes line rendering: once scrolled, the first `.cm-line`
+        // actually mounted in the DOM is whichever line now sits at the top
+        // of the viewport, NOT document line 1. `lineBlockAt` must be asked
+        // about that SAME line (via `posAtDOM`) rather than position 0 —
+        // comparing line 1's position against some other line's real
+        // position produced an error that grew with scroll offset instead of
+        // a small constant, so connectors drifted further the more you
+        // scrolled and never resolved themselves.
         const firstLineDom = resultPane.editor.querySelector('.cm-line');
         const svgTop = localDividerParts.svg.getBoundingClientRect().top;
         let yCorrection = 0;
         if (firstLineDom) {
-            const firstBlock = resultView.lineBlockAt(0);
+            const pos = resultView.posAtDOM(firstLineDom);
+            const firstBlock = resultView.lineBlockAt(pos);
             const computedY = firstBlock.top - resultView.scrollDOM.scrollTop;
             const realY = firstLineDom.getBoundingClientRect().top - svgTop;
             yCorrection = realY - computedY;
@@ -976,26 +1034,20 @@ export function createThreeWayView(
             const local = shift(g.local);
             const result = shift(g.result);
             const remote = shift(g.remote);
-            const localPath = localPathPool[g.index];
-            localPath.setAttribute(
-                'class',
+            localPathPool[g.index] = replaceConnectorPath(
+                localDividerParts.svg,
+                localPathPool[g.index],
+                g.index,
                 g.localHasGap ? `${baseCls} tw-connector-gap` : baseCls,
-            );
-            localPath.setAttribute(
-                'd',
                 ribbonPath(localWidth, local, result, g.localHasGap ? 2 : 1),
             );
-            localPath.style.display = '';
-            const remotePath = remotePathPool[g.index];
-            remotePath.setAttribute(
-                'class',
+            remotePathPool[g.index] = replaceConnectorPath(
+                remoteDividerParts.svg,
+                remotePathPool[g.index],
+                g.index,
                 g.remoteHasGap ? `${baseCls} tw-connector-gap` : baseCls,
-            );
-            remotePath.setAttribute(
-                'd',
                 ribbonPath(remoteWidth, result, remote, g.remoteHasGap ? 2 : 1),
             );
-            remotePath.style.display = '';
         }
         for (let i = 0; i < hunks.length; i++) {
             if (shown.has(i)) continue;
@@ -1077,119 +1129,159 @@ export function createThreeWayView(
         }
     }
 
-    // --- Scroll sync (result drives the sides) ------------------------------
+    // --- Scroll sync (whichever pane the user scrolls drives the other two) -
     /**
-     * Last hunk starting at or before `pos` — i.e. the hunk whose LINES are
-     * shown there. Scroll sync needs exactly that (a zero-width conflict shows
-     * no lines, so aligning sides by it would be off by its other side's
-     * height); keyboard actions use `hunkIndexForCursor` instead.
+     * Keeps all three panes locked together regardless of which one actually
+     * moved — a scrollbar drag, keyboard paging, or any other input can
+     * scroll a SIDE pane on its own (not just wheel-over-side, which already
+     * redirects into the result pane before this ever runs), and nothing
+     * used to bring the other two along, so they'd drift apart permanently.
+     *
+     * Reuses `computeConnectorGeometry`'s per-hunk spans (the exact same
+     * geometry the connectors are drawn from, so "in sync" means the same
+     * thing here as it does on screen): finds the last hunk whose span in
+     * `source`'s own viewport has scrolled past the viewport's top edge
+     * (span.top <= 0), takes the fractional position of that edge within the
+     * hunk's span, then applies that same fraction to the hunk's span in
+     * each OTHER pane. Re-anchors on every call instead of accumulating
+     * drift, so it stays visually locked even when wrapped-line heights
+     * differ between panes (a fixed line-index mapping would not).
      */
-    function hunkShownAt(pos: number): number {
-        let found = -1;
-        for (let i = 0; i < hunks.length; i++) {
-            if (conflictModel.rangeFor(i).from <= pos) found = i;
+    // Set right before this function assigns `scrollTop` on a view other
+    // than its own source, so that view's own native 'scroll' listener
+    // (fired asynchronously by the browser as a consequence of that
+    // assignment, not re-entrantly within this call) can recognize that
+    // echo and consume it without calling back into `syncFrom` — otherwise
+    // every synced pane re-triggers a full resync for a position that's
+    // already correct, and under a fast/continuous real scroll that
+    // redundant cascade compounds every tick, which was enough to back up
+    // the main thread and produce the "ribbon lags behind the scroll"
+    // symptom. Per-view (not a single blanket flag) because a blanket flag
+    // held across the echo also swallows the NEXT genuine same-source
+    // event if it lands inside that same window, which silently drops a
+    // real scroll update instead of just an echo.
+    const suppressNextScroll: Record<'local' | 'result' | 'remote', boolean> = {
+        local: false,
+        result: false,
+        remote: false,
+    };
+    function syncFrom(source: 'local' | 'result' | 'remote') {
+        const sourceView =
+            source === 'local'
+                ? localView
+                : source === 'result'
+                  ? resultView
+                  : remoteView;
+        const scrollTop = sourceView.scrollDOM.scrollTop;
+        const geometry = computeConnectorGeometry(
+            hunks,
+            conflictModel,
+            hunkIsCovering,
+            localView,
+            resultView,
+            remoteView,
+        );
+        let chosen: ConnectorGeometry | null = null;
+        for (const g of geometry) {
+            if (g[source].top <= 0) chosen = g;
             else break;
         }
-        return found;
-    }
-
-    /**
-     * Maps the result pane's current scroll position into each side pane by
-     * the PIXEL FRACTION through the current hunk, rather than a single
-     * nearest-line pick: get the hunk's own pixel span in the result pane
-     * (via `lineBlockAt`), find how far through it `scrollTop` sits, then
-     * apply that same fraction to the hunk's pixel span in each side pane.
-     * This re-anchors on every call instead of accumulating drift, so it
-     * stays visually locked even when wrapped-line heights differ between
-     * panes (a fixed line-index mapping would not).
-     */
-    function syncScroll() {
-        const scrollTop = resultView.scrollDOM.scrollTop;
-        const block = resultView.lineBlockAtHeight(scrollTop);
-        const resultDoc = resultView.state.doc;
-        const index = hunkShownAt(block.from);
-        for (const side of ['local', 'remote'] as const) {
-            const view = side === 'local' ? localView : remoteView;
-            if (index < 0) {
-                view.scrollDOM.scrollTop = scrollTop;
-                continue;
+        for (const other of ['local', 'result', 'remote'] as const) {
+            if (other === source) continue;
+            const otherView =
+                other === 'local'
+                    ? localView
+                    : other === 'result'
+                      ? resultView
+                      : remoteView;
+            let nextScrollTop: number;
+            if (!chosen) {
+                nextScrollTop = scrollTop;
+            } else {
+                const sourceSpan = chosen[source];
+                const sourceHeight = Math.max(
+                    sourceSpan.bottom - sourceSpan.top,
+                    1,
+                );
+                const fraction = Math.min(
+                    Math.max(-sourceSpan.top / sourceHeight, 0),
+                    1,
+                );
+                // Past the last matched hunk's bottom edge, there's no
+                // further geometry to anchor to (trailing unchanged
+                // content) — carry the extra scroll distance over 1:1
+                // instead of letting the fraction clamp silently drop it.
+                const overshoot = Math.max(-sourceSpan.bottom, 0);
+                const otherSpan = chosen[other];
+                const otherDocTop =
+                    otherSpan.top + otherView.scrollDOM.scrollTop;
+                const otherHeight = Math.max(
+                    otherSpan.bottom - otherSpan.top,
+                    1,
+                );
+                nextScrollTop =
+                    otherDocTop + fraction * otherHeight + overshoot;
             }
-            const hunk = hunks[index];
-            const resultRange = conflictModel.rangeFor(index);
-            const resultFromLine = Math.min(
-                resultDoc.lineAt(Math.min(resultRange.from, resultDoc.length))
-                    .number,
-                resultDoc.lines,
-            );
-            const resultToLine = Math.max(
-                resultDoc.lineAt(
-                    Math.min(
-                        Math.max(resultRange.to, resultRange.from),
-                        resultDoc.length,
-                    ),
-                ).number,
-                resultFromLine,
-            );
-            const resultTop = resultView.lineBlockAt(
-                resultDoc.line(resultFromLine).from,
-            ).top;
-            const resultBottomBlock = resultView.lineBlockAt(
-                resultDoc.line(resultToLine).from,
-            );
-            const resultHeight = Math.max(
-                resultBottomBlock.top + resultBottomBlock.height - resultTop,
-                1,
-            );
-            const fraction = Math.min(
-                Math.max((scrollTop - resultTop) / resultHeight, 0),
-                1,
-            );
-
-            const sideDoc = view.state.doc;
-            const start =
-                side === 'local'
-                    ? hunk.local_start_line
-                    : hunk.remote_start_line;
-            const end =
-                side === 'local' ? hunk.local_end_line : hunk.remote_end_line;
-            const sideFromLine = Math.max(
-                1,
-                Math.min(start + 1, sideDoc.lines),
-            );
-            const sideToLine = Math.max(
-                sideFromLine,
-                Math.min(end, sideDoc.lines),
-            );
-            const sideTop = view.lineBlockAt(
-                sideDoc.line(sideFromLine).from,
-            ).top;
-            const sideBottomBlock = view.lineBlockAt(
-                sideDoc.line(sideToLine).from,
-            );
-            const sideHeight =
-                sideBottomBlock.top + sideBottomBlock.height - sideTop;
-            // `fraction * sideHeight` is already a continuous, sub-pixel
-            // position within the hunk's own span — unlike the old
-            // nearest-line approach, there's no separate sub-line remainder
-            // left to add back on top of it.
-            view.scrollDOM.scrollTop = sideTop + fraction * sideHeight;
+            // A no-op assignment (already at this scrollTop — the common
+            // case once things have converged) doesn't fire a native
+            // 'scroll' event at all, so only arm the suppression when the
+            // value is actually changing and an echo is actually coming.
+            if (otherView.scrollDOM.scrollTop !== nextScrollTop) {
+                suppressNextScroll[other] = true;
+                otherView.scrollDOM.scrollTop = nextScrollTop;
+            }
         }
         scheduleConnectorRender();
     }
-    const onResultScroll = () => syncScroll();
+    const onResultScroll = () => {
+        if (suppressNextScroll.result) {
+            suppressNextScroll.result = false;
+            return;
+        }
+        syncFrom('result');
+    };
     resultView.scrollDOM.addEventListener('scroll', onResultScroll, {
+        passive: true,
+    });
+    // A side pane can scroll on its own without going through `onSideWheel`
+    // (scrollbar-thumb drag, keyboard paging/Home/End, touch or trackpad
+    // input that a platform delivers as a native `scroll` with no matching
+    // `wheel` event) — `syncFrom` brings the other two panes (and the
+    // connectors) along regardless.
+    const onLocalScroll = () => {
+        if (suppressNextScroll.local) {
+            suppressNextScroll.local = false;
+            return;
+        }
+        syncFrom('local');
+    };
+    const onRemoteScroll = () => {
+        if (suppressNextScroll.remote) {
+            suppressNextScroll.remote = false;
+            return;
+        }
+        syncFrom('remote');
+    };
+    localView.scrollDOM.addEventListener('scroll', onLocalScroll, {
+        passive: true,
+    });
+    remoteView.scrollDOM.addEventListener('scroll', onRemoteScroll, {
         passive: true,
     });
     // Vertical wheel over a side pane scrolls the result instead, which then
     // drives both sides — keeps all three panes locked together. Synced
     // immediately in the same handler (not left to the async `scroll` event
     // alone) so there's no one-frame lag between the wheel input and the
-    // other two panes catching up.
+    // other two panes catching up. Arms the same echo-suppression as
+    // `syncFrom` itself, since this assignment fires RESULT's own native
+    // 'scroll' event too, and the explicit `syncFrom('result')` right after
+    // already handles this tick.
     const onSideWheel = (event: WheelEvent) => {
         if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
         event.preventDefault();
+        suppressNextScroll.result = true;
         resultView.scrollDOM.scrollTop += event.deltaY;
-        syncScroll();
+        syncFrom('result');
     };
     localView.scrollDOM.addEventListener('wheel', onSideWheel, {
         passive: false,
@@ -1205,6 +1297,11 @@ export function createThreeWayView(
             ? new ResizeObserver(() => scheduleConnectorRender())
             : null;
     connectorResizeObserver?.observe(panes);
+    // Fallback for embedded webviews without ResizeObserver, and for window
+    // size changes that don't change `panes` itself: still cheap and
+    // RAF-coalesced, so it costs nothing to keep as a second safety net.
+    const onWindowResize = () => scheduleConnectorRender();
+    window.addEventListener('resize', onWindowResize);
 
     // --- Header ---------------------------------------------------------------
     function updateHeader() {
@@ -1462,7 +1559,10 @@ export function createThreeWayView(
             if (connectorFrame !== null) scheduler.cancel(connectorFrame);
             connectorFrame = null;
             connectorResizeObserver?.disconnect();
+            window.removeEventListener('resize', onWindowResize);
             resultView.scrollDOM.removeEventListener('scroll', onResultScroll);
+            localView.scrollDOM.removeEventListener('scroll', onLocalScroll);
+            remoteView.scrollDOM.removeEventListener('scroll', onRemoteScroll);
             localView.scrollDOM.removeEventListener('wheel', onSideWheel);
             remoteView.scrollDOM.removeEventListener('wheel', onSideWheel);
             localView.destroy();
