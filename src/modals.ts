@@ -1,4 +1,5 @@
 import { KEYMAP_BINDINGS } from './keymap';
+import { renderMarkdown } from './markdown';
 import {
     downloadAndInstallUpdate,
     restartToApplyUpdate,
@@ -230,7 +231,9 @@ export function showUpdateModal(
         ),
     );
     if (update.body) {
-        body.append(el('div', 'update-notes', update.body.trim()));
+        const notes = el('div', 'update-notes');
+        notes.innerHTML = renderMarkdown(update.body.trim());
+        body.append(notes);
     }
     const notesLink = document.createElement('a');
     notesLink.href = `${RELEASES_URL}/tag/v${update.version}`;

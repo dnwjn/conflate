@@ -1260,11 +1260,63 @@ button:focus-visible {
 	color: var(--text);
 	font-size: 12px;
 	line-height: 1.5;
-	white-space: pre-wrap;
 	overflow-wrap: break-word;
 	background: var(--panel);
 	border: 1px solid var(--border);
 	border-radius: 6px;
+}
+
+.update-notes h1,
+.update-notes h2,
+.update-notes h3 {
+	margin: 12px 0 4px;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.update-notes h1:first-child,
+.update-notes h2:first-child,
+.update-notes h3:first-child {
+	margin-top: 0;
+}
+
+.update-notes p {
+	margin: 6px 0;
+}
+
+.update-notes ul,
+.update-notes ol {
+	margin: 6px 0;
+	padding-left: 20px;
+}
+
+.update-notes li {
+	margin: 2px 0;
+}
+
+.update-notes a {
+	color: var(--brand);
+}
+
+.update-notes code {
+	padding: 1px 4px;
+	font-family: var(--code-font);
+	font-size: 11px;
+	background: var(--border);
+	border-radius: 4px;
+}
+
+.update-notes pre {
+	margin: 6px 0;
+	padding: 8px 10px;
+	overflow-x: auto;
+	background: var(--border);
+	border-radius: 6px;
+}
+
+.update-notes pre code {
+	padding: 0;
+	background: none;
 }
 
 .update-progress {

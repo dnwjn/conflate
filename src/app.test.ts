@@ -523,7 +523,8 @@ test('showUpdateModal shows the full release notes body without truncating it', 
     });
     showUpdateModal(root, update);
     const notes = root.querySelector('.update-notes');
-    expect(notes?.textContent?.trim()).toBe(longBody.trim());
+    expect(notes?.textContent).toContain("What's Changed");
+    expect(notes?.querySelectorAll('li')).toHaveLength(60);
 });
 
 test('showUpdateModal recovers from a failed download instead of getting stuck on "Downloading..."', async () => {
