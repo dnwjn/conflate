@@ -49,7 +49,17 @@ export async function checkForUpdate(
         return createMockUpdate({
             version: stubNextVersion(packageJson.version),
             currentVersion: packageJson.version,
-            body: 'Stubbed release notes for exercising the update UI under `pnpm run dev:stub`.',
+            body: [
+                "## What's Changed",
+                '* Improve merge conflict highlighting by @dnwjn in #42',
+                '* Fix drag-and-drop on Windows by @dnwjn in #41',
+                '* Stub release notes for exercising the update UI under `pnpm run dev:stub` by @dnwjn in #40',
+                '',
+                '## New Contributors',
+                '* @someone made their first contribution in #39',
+                '',
+                '**Full Changelog**: https://github.com/dnwjn/conflate/compare/v0.1.0...v0.2.0',
+            ].join('\n'),
         });
     }
     try {

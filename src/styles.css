@@ -1248,8 +1248,23 @@ button:focus-visible {
 	font-size: 12px;
 }
 
+.modal-card-update {
+	width: min(480px, 100%);
+}
+
 .update-notes {
+	max-height: 220px;
+	margin-bottom: 4px;
+	padding: 10px 12px;
+	overflow-y: auto;
 	color: var(--text);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 6px;
 }
 
 .update-progress {
