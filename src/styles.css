@@ -57,6 +57,10 @@
 	--word-local-bg: rgba(37, 99, 235, 0.24);
 	--word-remote-bg: rgba(147, 51, 234, 0.24);
 
+	--selection-match-bg: rgba(84, 174, 255, 0.18);
+	--search-match-bg: rgba(246, 207, 60, 0.45);
+	--search-match-selected-bg: rgba(246, 170, 60, 0.75);
+
 	/* syntax (classHighlighter tok-* classes) */
 	--tok-keyword: #cf222e;
 	--tok-string: #0a3069;
@@ -113,6 +117,10 @@
 		--word-local-bg: rgba(88, 166, 255, 0.3);
 		--word-remote-bg: rgba(199, 146, 234, 0.3);
 
+		--selection-match-bg: rgba(56, 139, 253, 0.22);
+		--search-match-bg: rgba(187, 128, 9, 0.5);
+		--search-match-selected-bg: rgba(240, 180, 41, 0.75);
+
 		--tok-keyword: #ff7b72;
 		--tok-string: #a5d6ff;
 		--tok-comment: #8b949e;
@@ -162,6 +170,10 @@
 
 	--word-local-bg: rgba(88, 166, 255, 0.3);
 	--word-remote-bg: rgba(199, 146, 234, 0.3);
+
+	--selection-match-bg: rgba(56, 139, 253, 0.22);
+	--search-match-bg: rgba(187, 128, 9, 0.5);
+	--search-match-selected-bg: rgba(240, 180, 41, 0.75);
 
 	--tok-keyword: #ff7b72;
 	--tok-string: #a5d6ff;
@@ -880,6 +892,75 @@ button:focus-visible {
 .tw-root .cm-word-remote {
 	background: var(--word-remote-bg);
 	border-radius: 2px;
+}
+
+/* -- Selection-match + search highlights -- */
+
+.tw-root .cm-selectionMatch {
+	background: var(--selection-match-bg);
+	border-radius: 2px;
+}
+
+.tw-root .cm-searchMatch {
+	background: var(--search-match-bg);
+	border-radius: 2px;
+}
+
+.tw-root .cm-searchMatch.cm-searchMatch-selected {
+	background: var(--search-match-selected-bg);
+}
+
+/* -- Search panel --
+ *
+ * `@codemirror/search`'s `search({ top: true })` renders its own panel as a
+ * plain sibling inside `.cm-editor`, unstyled by default; match the look of
+ * `.tw-pane-header` so it reads as part of this app rather than bare CM6
+ * chrome. */
+
+.tw-root .cm-panels {
+	background: var(--panel);
+	color: var(--text);
+}
+
+.tw-root .cm-panel.cm-search {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	font-size: 12px;
+	font-family: var(--ui-font);
+	border-bottom: 1px solid var(--border);
+}
+
+.tw-root .cm-panel.cm-search input,
+.tw-root .cm-panel.cm-search button,
+.tw-root .cm-panel.cm-search label {
+	font: inherit;
+	color: var(--text);
+}
+
+.tw-root .cm-panel.cm-search input[type='text'] {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 2px 6px;
+}
+
+.tw-root .cm-panel.cm-search button {
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 2px 8px;
+	cursor: pointer;
+}
+
+.tw-root .cm-panel.cm-search button:hover {
+	border-color: var(--brand);
+}
+
+.tw-root .cm-panel.cm-search button[name='close'] {
+	margin-left: auto;
 }
 
 /* -- Pull arrows + status pill (result pane) --
