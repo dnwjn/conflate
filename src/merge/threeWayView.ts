@@ -12,6 +12,11 @@ import {
 import { syntaxHighlighting } from '@codemirror/language';
 import { Chunk, type DiffConfig } from '@codemirror/merge';
 import {
+    highlightSelectionMatches,
+    search,
+    searchKeymap,
+} from '@codemirror/search';
+import {
     type ChangeDesc,
     Compartment,
     EditorState,
@@ -333,6 +338,8 @@ function commonExtensions(language: Compartment): Extension[] {
         highlightSpecialChars(),
         drawSelection(),
         highlightActiveLine(),
+        highlightSelectionMatches(),
+        search({ top: true }),
         syntaxHighlighting(classHighlighter),
         // Lets a shorter side document still scroll far enough to stay
         // line-aligned with the result near the end (see syncScroll).
@@ -428,6 +435,7 @@ export function createThreeWayView(
         ...commonExtensions(language),
         EditorState.readOnly.of(true),
         sideDecorationsField,
+        keymap.of(searchKeymap),
     ];
     const localView = new EditorView({
         parent: localPane.editor,
@@ -605,7 +613,12 @@ export function createThreeWayView(
                 ...commonExtensions(language),
                 history(),
                 invertHunkState,
-                keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+                keymap.of([
+                    ...defaultKeymap,
+                    ...historyKeymap,
+                    ...searchKeymap,
+                    indentWithTab,
+                ]),
                 // With "\n" as the only line separator (LINE_SEPARATOR), pasted or
                 // dropped CRLF text would otherwise keep its "\r"s as line content.
                 // Normalize it like the inputs are (Rust's load_merge_input); a
