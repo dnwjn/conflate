@@ -2,6 +2,7 @@ use crate::cli::Args;
 use crate::diff::three_way::compute_three_way_merge;
 use crate::diff::types::{ThreeWayMergeResult, WordDiffOp};
 use crate::diff::word_diff::compute_word_diff;
+use crate::editorconfig::{resolve_indent_config, IndentConfig};
 use crate::exit::ExitCode;
 use serde::Serialize;
 use specta::Type;
@@ -323,6 +324,17 @@ pub fn load_conflict_from_repo(
 ) -> Result<MergeInputPayload, String> {
     crate::repo_scan::load_conflict_from_repo(Path::new(&repo_path), &file_path)
         .map(|loaded| loaded.payload)
+}
+
+/// Tauri command: resolves the effective indent style/size for the file
+/// being merged from its `.editorconfig` ancestry (see
+/// `editorconfig::resolve_indent_config`). `source: "none"` tells the
+/// frontend no `.editorconfig` property applied, so it should fall back to
+/// detecting indentation from the file's own content.
+#[tauri::command]
+#[specta::specta]
+pub fn get_indent_config(full_path: String) -> IndentConfig {
+    resolve_indent_config(Path::new(&full_path))
 }
 
 /// Tauri command: writes a conflict resolved via the empty-state repo

@@ -75,6 +75,14 @@ export const commands = {
 	 *  `git add`, mirroring what resolving via `git mergetool` leaves behind.
 	 */
 	saveRepoConflictResolution: (repoPath: string, filePath: string, content: string) => __TAURI_INVOKE<null>("save_repo_conflict_resolution", { repoPath, filePath, content }),
+	/**
+	 *  Tauri command: resolves the effective indent style/size for the file
+	 *  being merged from its `.editorconfig` ancestry (see
+	 *  `editorconfig::resolve_indent_config`). `source: "none"` tells the
+	 *  frontend no `.editorconfig` property applied, so it should fall back to
+	 *  detecting indentation from the file's own content.
+	 */
+	getIndentConfig: (fullPath: string) => __TAURI_INVOKE<IndentConfig_Serialize>("get_indent_config", { fullPath }),
 };
 
 /* Types */
@@ -138,6 +146,42 @@ export type HunkKind =
  *  seeded with local's version; the user must resolve it.
  */
 "Conflict";
+
+/**
+ *  Effective indentation settings for a file, resolved from its
+ *  `.editorconfig` ancestry (see [`resolve_indent_config`]). `source` tells
+ *  the frontend whether it should still try content-based detection as a
+ *  fallback.
+ */
+export type IndentConfig = IndentConfig_Serialize | IndentConfig_Deserialize;
+
+/**
+ *  Effective indentation settings for a file, resolved from its
+ *  `.editorconfig` ancestry (see [`resolve_indent_config`]). `source` tells
+ *  the frontend whether it should still try content-based detection as a
+ *  fallback.
+ */
+export type IndentConfig_Deserialize = {
+	/**  `"tab"` or `"space"`, when an `.editorconfig` section matched. */
+	indentStyle?: string | null,
+	indentSize?: number | null,
+	/**  `"editorconfig"` when any property was found, `"none"` otherwise. */
+	source: string,
+};
+
+/**
+ *  Effective indentation settings for a file, resolved from its
+ *  `.editorconfig` ancestry (see [`resolve_indent_config`]). `source` tells
+ *  the frontend whether it should still try content-based detection as a
+ *  fallback.
+ */
+export type IndentConfig_Serialize = {
+	/**  `"tab"` or `"space"`, when an `.editorconfig` section matched. */
+	indentStyle: string | null,
+	indentSize: number | null,
+	/**  `"editorconfig"` when any property was found, `"none"` otherwise. */
+	source: string,
+};
 
 /**
  *  The three (or two, for add/add conflicts) input texts handed to the frontend,

@@ -9,7 +9,11 @@ import {
     redoDepth,
     undoDepth,
 } from '@codemirror/commands';
-import { syntaxHighlighting } from '@codemirror/language';
+import {
+    bracketMatching,
+    indentOnInput,
+    syntaxHighlighting,
+} from '@codemirror/language';
 import { Chunk, type DiffConfig } from '@codemirror/merge';
 import {
     highlightSelectionMatches,
@@ -61,6 +65,7 @@ import {
     type Span,
 } from './hunkConnectors';
 import { hunkIndexAt as hunkIndexForCursor } from './hunkNav';
+import { loadIndentConfig } from './indentLoader';
 import { computePullChange } from './pullChange';
 import { buildPaneSkeleton, updateHeader } from './threeWayDom';
 import { loadLanguage, loadWordDiffs } from './wordDiffLoader';
@@ -330,7 +335,10 @@ const baseTheme = EditorView.theme({
  */
 export const LINE_SEPARATOR: Extension = EditorState.lineSeparator.of('\n');
 
-function commonExtensions(language: Compartment): Extension[] {
+function commonExtensions(
+    language: Compartment,
+    indent: Compartment,
+): Extension[] {
     return [
         LINE_SEPARATOR,
         lineNumbers(),
@@ -341,10 +349,13 @@ function commonExtensions(language: Compartment): Extension[] {
         highlightSelectionMatches(),
         search({ top: true }),
         syntaxHighlighting(classHighlighter),
+        bracketMatching(),
         // Lets a shorter side document still scroll far enough to stay
         // line-aligned with the result near the end (see syncScroll).
         scrollPastEnd(),
         language.of([]),
+        indent.of([]),
+        indentOnInput(),
         baseTheme,
     ];
 }
@@ -411,6 +422,7 @@ export function createThreeWayView(
     const hunks = mergeResult.hunks;
     const scheduler = options.scheduler ?? defaultScheduler();
     const language = new Compartment();
+    const indent = new Compartment();
     let wordDiffEnabled = options.wordDiff ?? true;
     let destroyed = false;
 
@@ -432,7 +444,7 @@ export function createThreeWayView(
 
     // --- Side panes ---------------------------------------------------------
     const sideExtensions = [
-        ...commonExtensions(language),
+        ...commonExtensions(language, indent),
         EditorState.readOnly.of(true),
         sideDecorationsField,
         keymap.of(searchKeymap),
@@ -610,7 +622,7 @@ export function createThreeWayView(
         state: EditorState.create({
             doc: resultState0.doc,
             extensions: [
-                ...commonExtensions(language),
+                ...commonExtensions(language, indent),
                 history(),
                 invertHunkState,
                 keymap.of([
@@ -1342,6 +1354,13 @@ export function createThreeWayView(
 
     updateHeader(conflictModel, unresolvedPill);
     rediff();
+    void loadIndentConfig({
+        fullPath: input.fullPath,
+        docTextForDetection: resultState0.doc.toString(),
+        indent,
+        views: [localView, resultView, remoteView],
+        isDestroyed: () => destroyed,
+    });
     void loadLanguage({
         languageHint: input.languageHint,
         language,

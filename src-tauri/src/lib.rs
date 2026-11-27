@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod commands;
 pub mod diff;
+pub mod editorconfig;
 pub mod exit;
 pub mod git_labels;
 pub mod repo_scan;
@@ -35,6 +36,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::scan_repo_for_conflicts,
             commands::load_conflict_from_repo,
             commands::save_repo_conflict_resolution,
+            commands::get_indent_config,
         ])
 }
 

@@ -57,9 +57,10 @@
 	--word-local-bg: rgba(37, 99, 235, 0.24);
 	--word-remote-bg: rgba(147, 51, 234, 0.24);
 
-	--selection-match-bg: rgba(84, 174, 255, 0.18);
-	--search-match-bg: rgba(246, 207, 60, 0.45);
-	--search-match-selected-bg: rgba(246, 170, 60, 0.75);
+	--selection-match-bg: rgba(84, 174, 255, 0.32);
+	--search-match-bg: rgba(255, 196, 0, 0.55);
+	--search-match-selected-bg: rgba(255, 140, 0, 0.8);
+	--bracket-match-bg: rgba(91, 91, 214, 0.18);
 
 	/* syntax (classHighlighter tok-* classes) */
 	--tok-keyword: #cf222e;
@@ -117,9 +118,10 @@
 		--word-local-bg: rgba(88, 166, 255, 0.3);
 		--word-remote-bg: rgba(199, 146, 234, 0.3);
 
-		--selection-match-bg: rgba(56, 139, 253, 0.22);
-		--search-match-bg: rgba(187, 128, 9, 0.5);
-		--search-match-selected-bg: rgba(240, 180, 41, 0.75);
+		--selection-match-bg: rgba(56, 139, 253, 0.38);
+		--search-match-bg: rgba(217, 150, 10, 0.6);
+		--search-match-selected-bg: rgba(250, 200, 60, 0.85);
+		--bracket-match-bg: rgba(136, 136, 240, 0.28);
 
 		--tok-keyword: #ff7b72;
 		--tok-string: #a5d6ff;
@@ -171,9 +173,10 @@
 	--word-local-bg: rgba(88, 166, 255, 0.3);
 	--word-remote-bg: rgba(199, 146, 234, 0.3);
 
-	--selection-match-bg: rgba(56, 139, 253, 0.22);
-	--search-match-bg: rgba(187, 128, 9, 0.5);
-	--search-match-selected-bg: rgba(240, 180, 41, 0.75);
+	--selection-match-bg: rgba(56, 139, 253, 0.38);
+	--search-match-bg: rgba(217, 150, 10, 0.6);
+	--search-match-selected-bg: rgba(250, 200, 60, 0.85);
+	--bracket-match-bg: rgba(136, 136, 240, 0.28);
 
 	--tok-keyword: #ff7b72;
 	--tok-string: #a5d6ff;
@@ -928,6 +931,17 @@ button:focus-visible {
 
 .tw-root .cm-searchMatch.cm-searchMatch-selected {
 	background: var(--search-match-selected-bg);
+}
+
+/* -- Bracket matching -- */
+
+.tw-root .cm-matchingBracket {
+	background: var(--bracket-match-bg);
+	outline: none;
+}
+
+.tw-root .cm-nonmatchingBracket {
+	color: var(--danger);
 }
 
 /* -- Search panel --
