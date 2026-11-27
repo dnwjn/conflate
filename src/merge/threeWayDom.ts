@@ -1,7 +1,15 @@
 import type { ConflictModel } from './conflictModel';
 
-/** Keeps a side pane usable and the result pane from being squeezed away by a drag. */
-export const MIN_SIDE_PANE_WIDTH = 220;
+/**
+ * Keeps a side pane usable and the result pane from being squeezed away by a
+ * drag. Floored at each pane header's own min-content width (dot + label +
+ * sub-label, plus the unresolved pill for RESULT) so the header never
+ * overflows into a neighboring pane — measured live via devtools: LOCAL/
+ * REMOTE headers need ~124-170px depending on label length, RESULT needs
+ * ~228px with the pill. These add headroom for longer local/remote labels
+ * (e.g. a long branch name) than the dev fixtures exercise.
+ */
+export const MIN_SIDE_PANE_WIDTH = 180;
 export const MIN_RESULT_PANE_WIDTH = 240;
 
 export interface PaneDomOptions {
