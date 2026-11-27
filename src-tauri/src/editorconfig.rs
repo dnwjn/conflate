@@ -65,13 +65,11 @@ pub fn resolve_indent_config(file_path: &Path) -> IndentConfig {
     let mut dir = file_path.parent().map(Path::to_path_buf);
     while let Some(d) = dir {
         let candidate = d.join(".editorconfig");
-        if candidate.is_file() {
-            if let Ok(contents) = fs::read_to_string(&candidate) {
-                let (props, is_root) = parse_editorconfig(&contents, file_name);
-                layers.push(props);
-                if is_root {
-                    break;
-                }
+        if let Ok(contents) = fs::read_to_string(&candidate) {
+            let (props, is_root) = parse_editorconfig(&contents, file_name);
+            layers.push(props);
+            if is_root {
+                break;
             }
         }
         dir = d.parent().map(Path::to_path_buf);
